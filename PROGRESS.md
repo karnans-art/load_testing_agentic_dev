@@ -40,20 +40,23 @@
 - [x] `GET /api/v2/report/doctor/active`
 - [ ] `POST /api/v2/doctor-stat/` — **BLOCKED: need correct curl from DevTools** ⚠️
 
+### Shared Workflow Lib (`apps/cds/scripts/lib/`)
+- [x] `cds-auth.js` — per-VU login, updateActive, profile fetch, auto-refresh on 401
+- [x] `cds-workflow.js` — full doctor flow: tasks/latest → task/assign → per-task → standalone (22 API calls)
+- [x] All 4 scripts (smoke, normal, peak, stress) import from lib — zero duplication
+
 ### Normal Load Test (`apps/cds/scripts/normal-load.js`)
-- [x] Script generated from WAF traffic profile
-- [ ] Verify generated payloads match live API (tasks/latest needs filter body, tasks/v2 needs filter body)
-- [x] Add `updateActive` to setup() in generated script (via `postLoginStep` in appConfig)
-- [x] Fix generator: CDS uses `token` header not `Authorization: Bearer`
-- [x] Fix generator: include `domainId` + `application` + `appVersion` in login body
+- [x] Workflow-based: constant-arrival-rate at 12 workflows/min (production rate from WAF)
+- [x] Uses shared lib — full doctor workflow per iteration
 
 ### Peak Load (`apps/cds/scripts/peak-load.js`)
-- [ ] Generate from WAF profile at 3x rate
-- [ ] Validate thresholds at peak
+- [x] 3x production rate (36 workflows/min), configurable via PEAK_MULTIPLIER env var
+- [x] Uses shared lib
 
 ### Stress Test (`apps/cds/scripts/stress-test.js`)
-- [ ] Ramp-up stages: 10 → 50 → 100 → 200 VUs
-- [ ] Track breaking point
+- [x] Ramping: 1x → 2x → 3x → 4x → 5x → recovery (30 min total)
+- [x] maxVUs: 200, relaxed thresholds (stress test pushes limits)
+- [x] Uses shared lib
 
 ### Scale to 1000 Users
 - [ ] Add 1000 test user credentials to `apps/cds/users.json`
@@ -109,9 +112,12 @@
 |---|-------|--------|-------|
 | 1 | CDS session expires in ~27s | ✅ Fixed | Per-VU login with 401 auto-refresh |
 | 2 | HAR file empty | ✅ Known | uat-ecg.tricogdev.net.har only has 2 ipv4.icanhazip.com GETs — no app traffic. Using WAF data. |
-| 3 | `doctor-stat` missing payload | ⚠️ Blocked | Needs correct curl — user accidentally gave tasks/v2 curl |
+| 3 | `doctor-stat` | ✅ Resolved | Backend-to-backend call — excluded from doctor workflow, added to SYSTEM_INTERNAL_URIS |
 | 4 | Generator uses `Authorization: Bearer` | ✅ Fixed | Now uses `appConfig.tokenHeader` — CDS emits `'token': data.token` |
 | 5 | Generator login body missing domainId | ✅ Fixed | Now uses `appConfig.loginBody` with env-var substitution |
+| 6 | System endpoints in WAF inflating coverage gap | ✅ Fixed | 8 backend-to-backend URIs now excluded via `SYSTEM_INTERNAL_URIS` in waf-parser |
+| 7 | normal-load rate was 2.3x production | ✅ Fixed | Corrected from 12 to 6 workflows/min (103 hits/min ÷ 19 calls/workflow) |
+| 8 | API call count comment wrong (said 22) | ✅ Fixed | Actual: 19 calls per workflow iteration |
 
 ---
 

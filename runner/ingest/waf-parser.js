@@ -34,6 +34,20 @@ const SKIP_URI_PATTERNS = [
   '/favicon', '/.well-known', '/static/', '/assets/',
 ]
 
+// System-internal endpoints — appear in WAF but NOT triggered by doctors in the browser.
+// These are backend-to-backend, automated timers, device uploads, or cron jobs.
+const SYSTEM_INTERNAL_URIS = [
+  '/api/v2/task/arrival',              // new task pushed by ECG device/center
+  '/api/v2/case/arrival',              // new case created by system
+  '/api/v2/task/algo',                 // algorithm processing result (backend service)
+  '/api/v2/task/timeout',              // server-side timer expiry
+  '/api/v2/task/skip',                 // auto-skip by system rules
+  '/api/v2/case/skip',                 // auto-skip by system rules
+  '/api/v2/task/delete-timedout-task', // cleanup job
+  '/api/v2/task/atlas-timeout',        // atlas processing timeout
+  '/api/v2/doctor-stat/',              // backend stats aggregation
+]
+
 // Domain → app name mapping (for multi-sheet WAF files)
 export const DOMAIN_TO_APP = {
   'ecg.tricog.com':      'cds',
@@ -185,6 +199,17 @@ function classifyEndpoint(method, uri, agents, hits) {
         agentClass: 'SCRIPT',
         warning: null,
       }
+    }
+  }
+
+  // System-internal endpoints → skip (backend-to-backend, not doctor browser traffic)
+  if (SYSTEM_INTERNAL_URIS.some(p => uri.toLowerCase() === p.toLowerCase())) {
+    return {
+      include: false,
+      includeReason: 'SKIP_SYSTEM_INTERNAL',
+      confidence: 95,
+      agentClass: 'SYSTEM',
+      warning: null,
     }
   }
 
