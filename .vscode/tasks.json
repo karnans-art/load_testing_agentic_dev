@@ -1,0 +1,53 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "CDS: Smoke Test",
+      "type": "shell",
+      "command": "export $(cat .env | grep -v '^#' | xargs) && k6 run -e BASE_URL=$BASE_URL -e TEST_USERNAME=$TEST_USERNAME -e TEST_PASSWORD=$TEST_PASSWORD -e TEST_DOMAIN=$TEST_DOMAIN apps/cds/scripts/smoke.js",
+      "group": "test",
+      "presentation": { "reveal": "always", "panel": "new" },
+      "problemMatcher": []
+    },
+    {
+      "label": "CDS: Normal Load (Production Replay)",
+      "type": "shell",
+      "command": "export $(cat .env | grep -v '^#' | xargs) && k6 run -e BASE_URL=$BASE_URL -e TEST_USERNAME=$TEST_USERNAME -e TEST_PASSWORD=$TEST_PASSWORD -e TEST_DOMAIN=$TEST_DOMAIN apps/cds/scripts/normal-load.js",
+      "group": "test",
+      "presentation": { "reveal": "always", "panel": "new" },
+      "problemMatcher": []
+    },
+    {
+      "label": "CDS: Peak Load (3x)",
+      "type": "shell",
+      "command": "export $(cat .env | grep -v '^#' | xargs) && k6 run -e BASE_URL=$BASE_URL -e TEST_USERNAME=$TEST_USERNAME -e TEST_PASSWORD=$TEST_PASSWORD -e TEST_DOMAIN=$TEST_DOMAIN apps/cds/scripts/peak-load.js",
+      "group": "test",
+      "presentation": { "reveal": "always", "panel": "new" },
+      "problemMatcher": []
+    },
+    {
+      "label": "CDS: Stress Test",
+      "type": "shell",
+      "command": "export $(cat .env | grep -v '^#' | xargs) && k6 run -e BASE_URL=$BASE_URL -e TEST_USERNAME=$TEST_USERNAME -e TEST_PASSWORD=$TEST_PASSWORD -e TEST_DOMAIN=$TEST_DOMAIN apps/cds/scripts/stress-test.js",
+      "group": "test",
+      "presentation": { "reveal": "always", "panel": "new" },
+      "problemMatcher": []
+    },
+    {
+      "label": "CDS: Ingest WAF + HAR",
+      "type": "shell",
+      "command": "node runner/run.js --app cds --step ingest",
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "CDS: Regenerate k6 Scripts",
+      "type": "shell",
+      "command": "node runner/run.js --app cds --step generate",
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    }
+  ]
+}
