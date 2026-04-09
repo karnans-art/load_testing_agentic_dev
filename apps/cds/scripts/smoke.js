@@ -7,7 +7,7 @@ import { authHeaders, isLoggedIn } from './lib/cds-auth.js'
 import { doctorWorkflow } from './lib/cds-workflow.js'
 
 export const options = {
-  vus: 1,
+  vus: 10,
   duration: '30s',
   thresholds: {
     http_req_failed:   ['rate<0.10'],
