@@ -58,6 +58,13 @@
 - [x] maxVUs: 200, relaxed thresholds (stress test pushes limits)
 - [x] Uses shared lib
 
+### Production Load Test (`apps/cds/scripts/production-load.js`)
+- [x] 19 endpoints at exact WAF production rates (109 req/min total)
+- [x] Weighted random endpoint selection — single scenario, VUs = user count
+- [x] Proactive token refresh at 20s (before ~27s server expiry)
+- [x] Session conflict fix — 1 user = 1 VU, no cross-VU invalidation
+- [ ] Validate full 10-min run — all 19 endpoints passing <5% failure
+
 ### Scale to 1000 Users
 - [ ] Add 1000 test user credentials to `apps/cds/users.json`
 - [ ] Verify server supports 1000 concurrent sessions
@@ -88,21 +95,81 @@
 
 ---
 
-## Phase 5: Observability & Reporting ⏳ Future
+## Phase 5: k6 Cloud + Datadog Integration ⏳ Next
 
-- [ ] Datadog integration — `DD_API_KEY` + `DD_APP_KEY` in `.env` (keys not set yet)
-- [ ] k6 → Datadog metrics pipeline
-- [ ] Baseline performance report from first production-scale run
-- [ ] Alert thresholds calibrated from baseline (p95, error rate)
-- [ ] VS Code / Web UI for triggering tests without CLI
+### Strategy
+Two output channels from every load test run:
+- **k6 Cloud** (`--out cloud`) → load test dashboards, historical comparison, team-shareable links
+- **Datadog** (`--out statsd`) → correlate load metrics with existing infra monitoring (CPU, memory, APM traces)
+
+### k6 Cloud Setup
+- [ ] Sign up at app.k6.io → get API token
+- [ ] Add `K6_CLOUD_TOKEN` to `.env`
+- [ ] Add `cloud` options block to all scripts (projectID, name, tags)
+- [ ] Update npm scripts: `cloud:cds` → `k6 cloud apps/cds/scripts/production-load.js`
+- [ ] Validate dashboards: per-endpoint latency, check pass rates, VU timeline
+
+### Datadog Integration
+- [ ] Get `DD_AGENT_HOST` address (existing DD agent in UAT — likely localhost or internal IP)
+- [ ] Enable StatsD receiver on DD agent (`dogstatsd_port: 8125` in datadog.yaml)
+- [ ] Add `--out statsd` to k6 run commands with `K6_STATSD_ADDR=<DD_AGENT_HOST>:8125`
+- [ ] Verify k6 metrics appear in Datadog: `k6.http_req_duration`, `k6.http_reqs`, `k6.checks`
+- [ ] Build Datadog dashboard: k6 load metrics alongside existing CPU/memory/APM traces
+- [ ] Set Datadog monitors: alert if p95 > threshold during load test window
+
+### Dual Output npm Scripts
+```
+smoke:cds       → k6 run (local only — fast validation)
+production:cds  → k6 run --out cloud --out statsd (both channels)
+```
 
 ---
 
-## Phase 6: CI/CD Gate ⏳ Future
+## Phase 6: CI/CD Post-Deployment Gate ⏳ Future
 
-- [ ] Pre-deployment gate (SonarQube-style) — block deploys if p95 > threshold
-- [ ] GitHub Actions / CI pipeline integration
-- [ ] Scheduled nightly baseline runs
+### Trigger Flow
+```
+CDS Deploy (CI/CD) → Post-deploy hook → Smoke test → Pass? → Production load test → Report
+                                                    → Fail? → Alert team, block promotion
+```
+
+### Prerequisites
+- [ ] k6 installed on CI runner (or use k6 Cloud API for remote execution)
+- [ ] CI runner has network access to UAT/staging environment
+- [ ] `K6_CLOUD_TOKEN`, `DD_AGENT_HOST`, test credentials available as CI secrets
+- [ ] `users.json` accessible to CI runner (or stored as CI artifact)
+
+### Pipeline Steps (GitHub Actions / GitLab CI / Jenkins)
+
+#### Step 1: Post-Deploy Smoke (fast gate — ~30s)
+- Trigger: after CDS deployment completes
+- Run: `k6 run apps/cds/scripts/smoke.js` (1 VU, 22 checks)
+- Gate: ALL checks pass, 0% failure → proceed to step 2
+- Fail action: alert Slack/Teams, mark deployment as degraded
+
+#### Step 2: Post-Deploy Production Load (full validation — ~10min)
+- Trigger: only if smoke passes
+- Run: `k6 run --out cloud apps/cds/scripts/production-load.js`
+- Gate: `http_req_failed < 5%`, `p95 < 3000ms`
+- Fail action: alert team with k6 Cloud dashboard link, do NOT auto-rollback (manual decision)
+
+#### Step 3: Report
+- k6 Cloud dashboard link posted to Slack/Teams channel
+- Datadog dashboard shows infra impact of deployment
+- Historical comparison: this deploy vs previous deploy
+
+### CI Configuration Needed
+- [ ] CI pipeline config file (GitHub Actions `.yml` / GitLab `.gitlab-ci.yml` / Jenkinsfile)
+- [ ] CI secrets: `K6_CLOUD_TOKEN`, `BASE_URL`, `TEST_USERNAME`, `TEST_PASSWORD`, `TEST_DOMAIN`
+- [ ] Slack/Teams webhook for notifications
+- [ ] Determine trigger mechanism: webhook from deploy pipeline, or scheduled cron
+- [ ] Decide: same repo or separate repo for CI config?
+
+### Future Enhancements
+- [ ] Scheduled nightly baseline runs (cron → production-load → compare with previous night)
+- [ ] Pre-deployment gate: run load test on staging BEFORE promoting to production
+- [ ] Auto-rollback integration (optional, requires high confidence in thresholds)
+- [ ] Multi-environment support: staging vs production base URLs
 
 ---
 
@@ -118,13 +185,17 @@
 | 6 | System endpoints in WAF inflating coverage gap | ✅ Fixed | 8 backend-to-backend URIs now excluded via `SYSTEM_INTERNAL_URIS` in waf-parser |
 | 7 | normal-load rate was 2.3x production | ✅ Fixed | Corrected from 12 to 6 workflows/min (103 hits/min ÷ 19 calls/workflow) |
 | 8 | API call count comment wrong (said 22) | ✅ Fixed | Actual: 19 calls per workflow iteration |
+| 9 | production-load 50% failure rate | ✅ Fixed | 46 VUs × 1 user = session cascade. Redesigned: 1 scenario, VUs = user count, weighted endpoint selection |
+| 10 | check() inside withAuth double-counting | ✅ Fixed | Moved check() outside withAuth — only checks final (retried) result |
 
 ---
 
 ## Next Actions (Priority Order)
 
-1. **You** → share `POST /api/v2/doctor-stat/` curl from DevTools (Network tab)
-2. **Me** → fix generator: token header + login body for CDS
-3. **Me** → run full normal-load.js after fix
-4. **You** → provide 1000 test user list when ready for scale testing
-5. **You** → provide admin + customer WAF/HAR when ready to add those apps
+1. **Me** → Validate production-load.js — run full 10-min, confirm all 19 endpoints pass
+2. **You** → Provide `K6_CLOUD_TOKEN` (sign up at app.k6.io → Settings → API token)
+3. **You** → Provide `DD_AGENT_HOST` (IP/hostname of existing Datadog agent in UAT)
+4. **Me** → Wire up dual output: `--out cloud --out statsd` in npm scripts
+5. **You** → Provide CI/CD platform details (GitHub Actions / GitLab CI / Jenkins) for post-deploy gate
+6. **You** → Provide 1000 test user list when ready for scale testing
+7. **You** → Provide admin + customer WAF/HAR when ready to add those apps

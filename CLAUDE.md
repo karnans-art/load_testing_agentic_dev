@@ -45,8 +45,10 @@ For null user_agent:
 - Everything else → INCLUDE with WARNING
 
 ### VI. Execution Modes
-- Local: `k6 run` — development and staging
-- Cloud: `k6 cloud` — production load testing (requires K6_CLOUD_TOKEN)
+- Local: `k6 run` — development and smoke testing
+- Cloud: `k6 run --out cloud` — dashboards + historical comparison (requires K6_CLOUD_TOKEN)
+- Dual: `k6 run --out cloud --out statsd` — cloud dashboards + Datadog infra correlation
+- CI/CD: post-deploy smoke → production-load → report to Slack/Teams
 
 ### VII. One-Time Discovery
 Scan codebase ONCE → save to `apps/<name>/discovered/`

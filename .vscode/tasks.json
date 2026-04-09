@@ -26,6 +26,14 @@
       "problemMatcher": []
     },
     {
+      "label": "CDS: Production Replication",
+      "type": "shell",
+      "command": "export $(cat .env | grep -v '^#' | xargs) && k6 run -e BASE_URL=$BASE_URL -e TEST_USERNAME=$TEST_USERNAME -e TEST_PASSWORD=$TEST_PASSWORD -e TEST_DOMAIN=$TEST_DOMAIN apps/cds/scripts/production-load.js",
+      "group": "test",
+      "presentation": { "reveal": "always", "panel": "new" },
+      "problemMatcher": []
+    },
+    {
       "label": "CDS: Stress Test",
       "type": "shell",
       "command": "export $(cat .env | grep -v '^#' | xargs) && k6 run -e BASE_URL=$BASE_URL -e TEST_USERNAME=$TEST_USERNAME -e TEST_PASSWORD=$TEST_PASSWORD -e TEST_DOMAIN=$TEST_DOMAIN apps/cds/scripts/stress-test.js",

@@ -11,6 +11,7 @@
     "normal:cds":   "k6 run -e BASE_URL=$BASE_URL -e TEST_EMAIL=$TEST_EMAIL -e TEST_PASSWORD=$TEST_PASSWORD apps/cds/scripts/normal-load.js",
     "peak:cds":     "k6 run -e BASE_URL=$BASE_URL -e TEST_EMAIL=$TEST_EMAIL -e TEST_PASSWORD=$TEST_PASSWORD apps/cds/scripts/peak-load.js",
     "stress:cds":   "k6 run -e BASE_URL=$BASE_URL -e TEST_EMAIL=$TEST_EMAIL -e TEST_PASSWORD=$TEST_PASSWORD apps/cds/scripts/stress-test.js",
+    "production:cds": "k6 run -e BASE_URL=$BASE_URL -e TEST_EMAIL=$TEST_EMAIL -e TEST_PASSWORD=$TEST_PASSWORD apps/cds/scripts/production-load.js",
     "cloud:cds":    "node runner/run.js --app cds --step run --mode cloud",
     "full:cds":     "node runner/run.js --app cds"
   },
