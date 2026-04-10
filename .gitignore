@@ -3,3 +3,4 @@ node_modules/
 apps/*/reports/
 apps/*/discovered/
 *.har
+runner/setup/.auth/

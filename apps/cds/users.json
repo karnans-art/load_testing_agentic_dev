@@ -4,6 +4,36 @@
       "domainId": "Uatdomain3",
       "username": "Karnan",
       "password": "tricog123"
+    },
+    {
+      "domainId": "Uatdomain3",
+      "username": "User3",
+      "password": "Testing@123"
+    },
+    {
+      "domainId": "Uatdomain3",
+      "username": "pooja.cs",
+      "password": "tricog123"
+    },
+    {
+      "domainId": "UatDomain3",
+      "username": "testlt001",
+      "password": "tricog123"
+    },
+    {
+      "domainId": "UatDomain3",
+      "username": "ltx001",
+      "password": "tricog123"
+    },
+    {
+      "domainId": "UatDomain3",
+      "username": "lt001",
+      "password": "tricog123"
+    },
+    {
+      "domainId": "UatDomain3",
+      "username": "lt002",
+      "password": "tricog123"
     }
   ]
 }
