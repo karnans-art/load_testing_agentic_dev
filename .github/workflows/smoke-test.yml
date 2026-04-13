@@ -13,6 +13,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install --omit=optional
+
       - name: Install k6
         run: |
           curl -sL https://github.com/grafana/k6/releases/download/v1.7.1/k6-v1.7.1-linux-amd64.tar.gz | tar xz
@@ -25,4 +33,4 @@ jobs:
           TEST_EMAIL: ${{ secrets.TEST_EMAIL }}
           TEST_PASSWORD: ${{ secrets.TEST_PASSWORD }}
           K6_CLOUD_TOKEN: ${{ secrets.K6_CLOUD_TOKEN }}
-        run: k6 run --out cloud -e BASE_URL=$BASE_URL -e TEST_EMAIL=$TEST_EMAIL -e TEST_PASSWORD=$TEST_PASSWORD apps/cds/scripts/smoke.js
+        run: node runner/run-test.js --app cds --script smoke --cloud
