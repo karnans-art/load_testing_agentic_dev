@@ -53,9 +53,10 @@ let _username = null;
 
 function login() {
   if (_token) return;
-  _doctorName = null;
 
-  const user = USERS[(exec.vu.idInInstance - 1) % USERS.length];
+  const idx = exec.vu.idInInstance - 1;
+  if (idx >= USERS.length) return;   // no user for this VU — avoid session collision
+  const user = USERS[idx];
   const res = http.post(`${BASE_URL}/api/v2/login`, JSON.stringify({
     domainId:    user.domainId,
     username:    user.username,
