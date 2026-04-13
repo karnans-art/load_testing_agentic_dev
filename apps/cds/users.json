@@ -15,17 +15,7 @@
       "username": "pooja.cs",
       "password": "tricog123"
     },
-    {
-      "domainId": "UatDomain3",
-      "username": "testlt001",
-      "password": "tricog123"
-    },
-    {
-      "domainId": "UatDomain3",
-      "username": "ltx001",
-      "password": "tricog123"
-    },
-    {
+{
       "domainId": "UatDomain3",
       "username": "lt001",
       "password": "tricog123"

@@ -38,7 +38,10 @@
 - [x] `GET /api/v2/language`
 - [x] `GET /api/v2/report/total/eta`
 - [x] `GET /api/v2/report/doctor/active`
+- [x] Refactored: grouped into List Page + Diagnosis Page (loops all tasks)
+- [x] Added setup() / teardown()
 - [ ] `POST /api/v2/doctor-stat/` — **BLOCKED: need correct curl from DevTools** ⚠️
+- [ ] Add simulator push (like cds100.js) for task injection
 
 ### Shared Workflow Lib (`apps/cds/scripts/lib/`)
 - [x] `cds-auth.js` — per-VU login, updateActive, profile fetch, auto-refresh on 401
@@ -64,6 +67,15 @@
 - [x] Proactive token refresh at 20s (before ~27s server expiry)
 - [x] Session conflict fix — 1 user = 1 VU, no cross-VU invalidation
 - [ ] Validate full 10-min run — all 19 endpoints passing <5% failure
+
+### Standalone Test (`tests/cds100.js`) — Spec: `specs/cds100-test-spec.md`
+- [x] Per-VU login (moved from setup to default — fixes multi-VU session conflicts)
+- [x] List Page group: 12 standalone API calls
+- [x] Diagnosis Page group: loops through ALL tasks (6 calls per task)
+- [x] Admin simulator push in setup() — `POST /api/case/simulator` injects tasks before test
+- [x] Abort on simulator failure — VUs skip if no tasks can be pushed
+- [x] `ADMIN_COOKIE` as env var — user pastes fresh cookie before each run
+- [x] `.csi` ECG file stored at `apps/cds/fixtures/sample.csi`
 
 ### Scale to N Users (VUs = Users)
 - [x] Dynamic VU scaling — all scripts auto-set VUs = `users.json` user count
