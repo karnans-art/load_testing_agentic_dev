@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>CDS Load Testing Platform — Comparison Report</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    color: #1a1a2e;
+    background: #fff;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 60px 48px;
+    line-height: 1.6;
+    font-size: 14px;
+  }
+
+  .cover {
+    text-align: center;
+    padding: 80px 0 60px;
+    border-bottom: 3px solid #2563eb;
+    margin-bottom: 48px;
+  }
+  .cover h1 {
+    font-size: 28px;
+    font-weight: 700;
+    color: #1a1a2e;
+    margin-bottom: 8px;
+  }
+  .cover .subtitle {
+    font-size: 16px;
+    color: #64748b;
+    margin-bottom: 24px;
+  }
+  .cover .meta {
+    font-size: 13px;
+    color: #94a3b8;
+  }
+  .cover .meta span {
+    margin: 0 12px;
+  }
+
+  h2 {
+    font-size: 20px;
+    font-weight: 700;
+    color: #1e293b;
+    margin: 48px 0 16px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #e2e8f0;
+  }
+
+  h3 {
+    font-size: 16px;
+    font-weight: 600;
+    color: #334155;
+    margin: 32px 0 12px;
+  }
+
+  p {
+    margin-bottom: 12px;
+    color: #475569;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0 24px;
+    font-size: 13px;
+  }
+  thead th {
+    background: #f1f5f9;
+    color: #334155;
+    font-weight: 600;
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 2px solid #cbd5e1;
+  }
+  tbody td {
+    padding: 10px 14px;
+    border-bottom: 1px solid #e2e8f0;
+    color: #475569;
+    vertical-align: top;
+  }
+  tbody tr:hover { background: #f8fafc; }
+
+  .badge-yes {
+    display: inline-block;
+    background: #dcfce7;
+    color: #166534;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .badge-no {
+    display: inline-block;
+    background: #fee2e2;
+    color: #991b1b;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .badge-fixed {
+    display: inline-block;
+    background: #dbeafe;
+    color: #1e40af;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .highlight-box {
+    background: #f8fafc;
+    border-left: 4px solid #2563eb;
+    padding: 16px 20px;
+    margin: 16px 0 24px;
+    border-radius: 0 8px 8px 0;
+  }
+  .highlight-box p {
+    margin: 0;
+    color: #334155;
+    font-size: 13px;
+  }
+
+  .flow-diagram {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin: 16px 0 24px;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    line-height: 1.8;
+    color: #334155;
+    white-space: pre;
+  }
+
+  .priority-high { color: #dc2626; font-weight: 600; }
+  .priority-med { color: #d97706; font-weight: 600; }
+  .priority-low { color: #16a34a; font-weight: 600; }
+
+  .page-break { page-break-before: always; }
+
+  @media print {
+    body { padding: 40px 36px; font-size: 12px; }
+    .cover { padding: 40px 0 30px; }
+    h2 { margin-top: 32px; }
+    table { font-size: 11px; }
+    .page-break { page-break-before: always; }
+  }
+</style>
+</head>
+<body>
+
+<!-- COVER -->
+<div class="cover">
+  <h1>CDS Load Testing Platform</h1>
+  <div class="subtitle">Comparison Report</div>
+  <div class="meta">
+    <span><strong>Project A:</strong> agentic-loadtesting (Karnan)</span>
+    <span><strong>Project B:</strong> loadtest-cds100 (Suresh)</span>
+  </div>
+  <div class="meta" style="margin-top: 8px;">April 2026</div>
+</div>
+
+<!-- 1. OVERVIEW -->
+<h2>1. Overview</h2>
+<p>Both projects load-test the same CDS (Clinical Decision Support) application — the ECG doctor workflow where doctors login, view cases, assign, diagnose, and submit reports. Both use <strong>k6</strong> as the load testing engine and target the same set of API endpoints.</p>
+
+<table>
+  <thead><tr><th>Area</th><th>Project A (Karnan)</th><th>Project B (Suresh)</th></tr></thead>
+  <tbody>
+    <tr><td>Engine</td><td>k6</td><td>k6</td></tr>
+    <tr><td>Target environment</td><td>UAT (uat-ecg.tricogdev.net)</td><td>Dev (dev-split-ecg.tricogdev.net)</td></tr>
+    <tr><td>Endpoints tested</td><td>23</td><td>26</td></tr>
+    <tr><td>Test scenarios</td><td>4</td><td>6</td></tr>
+    <tr><td>CI/CD</td><td>GitHub Actions</td><td>GitHub Actions</td></tr>
+  </tbody>
+</table>
+
+<!-- 2. TEST COVERAGE -->
+<h2>2. Test Scenario Coverage</h2>
+
+<table>
+  <thead><tr><th>Scenario</th><th>Purpose</th><th>Project A</th><th>Project B</th></tr></thead>
+  <tbody>
+    <tr><td>Smoke</td><td>Quick validation after changes</td><td><span class="badge-yes">Yes</span></td><td><span class="badge-yes">Yes</span></td></tr>
+    <tr><td>Production / Average load</td><td>Simulate normal traffic</td><td><span class="badge-yes">WAF-weighted</span></td><td><span class="badge-yes">Ramp 0-20 VUs</span></td></tr>
+    <tr><td>Peak load</td><td>3x production traffic</td><td><span class="badge-yes">Yes</span></td><td><span class="badge-yes">Yes</span></td></tr>
+    <tr><td>Stress (ramping)</td><td>Find breaking point</td><td><span class="badge-yes">1x-5x ramp</span></td><td><span class="badge-yes">0-150 VUs staged</span></td></tr>
+    <tr><td>Soak (endurance)</td><td>Catch memory leaks over hours</td><td><span class="badge-no">No</span></td><td><span class="badge-yes">20 VUs, 2 hrs</span></td></tr>
+    <tr><td>Continuous diagnosis</td><td>Doctor processes cases in a loop</td><td><span class="badge-no">No</span></td><td><span class="badge-yes">Yes</span></td></tr>
+  </tbody>
+</table>
+
+<!-- 3. ENDPOINT COVERAGE -->
+<h2>3. API Endpoint Coverage</h2>
+
+<h3>3.1 Common endpoints (both projects)</h3>
+<table>
+  <thead><tr><th>Endpoint</th><th>Method</th></tr></thead>
+  <tbody>
+    <tr><td>/api/v2/login</td><td>POST</td></tr>
+    <tr><td>/api/v2/updateActive</td><td>POST</td></tr>
+    <tr><td>/api/v2/tasks/latest</td><td>POST</td></tr>
+    <tr><td>/api/v2/tasks/v2</td><td>POST</td></tr>
+    <tr><td>/api/v2/tasks/count</td><td>POST</td></tr>
+    <tr><td>/api/v2/user</td><td>GET</td></tr>
+    <tr><td>/api/v2/config</td><td>GET</td></tr>
+    <tr><td>/api/v2/config/version/viewer</td><td>GET</td></tr>
+    <tr><td>/api/v2/language</td><td>GET</td></tr>
+    <tr><td>/api/v2/report/total/eta</td><td>GET</td></tr>
+    <tr><td>/api/v2/report/doctor/active</td><td>GET</td></tr>
+    <tr><td>/api/v2/report/doctor/avg</td><td>POST</td></tr>
+    <tr><td>/api/v2/report/day/avg</td><td>POST</td></tr>
+    <tr><td>/api/v2/getQueueLength</td><td>GET</td></tr>
+    <tr><td>/api/v2/nextEcg</td><td>GET</td></tr>
+    <tr><td>/api/v2/tasks/{id}/algo</td><td>GET</td></tr>
+    <tr><td>/api/v2/ecgData/{id}</td><td>GET</td></tr>
+    <tr><td>/api/v2/patient/{id}</td><td>GET</td></tr>
+    <tr><td>/api/v2/tasks/{id}/history/count</td><td>GET</td></tr>
+    <tr><td>/api/v2/case/{id}/comments/history</td><td>GET</td></tr>
+  </tbody>
+</table>
+
+<h3>3.2 Endpoints unique to each project</h3>
+<table>
+  <thead><tr><th>Endpoint</th><th>Project A only</th><th>Project B only</th></tr></thead>
+  <tbody>
+    <tr><td>/api/v2/task/{id}/users?role=undefined</td><td><span class="badge-yes">Yes</span></td><td><span class="badge-no">No</span></td></tr>
+    <tr><td>/api/v2/task/assign (correct username)</td><td><span class="badge-yes">Yes</span></td><td>Hardcoded</td></tr>
+    <tr><td>/api/case/simulator (case injection)</td><td><span class="badge-yes">Yes</span></td><td><span class="badge-no">No</span></td></tr>
+    <tr><td>/api/v2/diagnose</td><td><span class="badge-no">No</span></td><td><span class="badge-yes">Yes</span></td></tr>
+    <tr><td>WebSocket (Socket.IO)</td><td><span class="badge-no">No</span></td><td><span class="badge-yes">Yes</span></td></tr>
+    <tr><td>/api/v2/getSearchList</td><td><span class="badge-no">No</span></td><td><span class="badge-yes">Yes</span></td></tr>
+    <tr><td>/api/v2/ecg/reports/{id}</td><td><span class="badge-no">No</span></td><td><span class="badge-yes">Yes</span></td></tr>
+    <tr><td>/api/v2/viewer2B/configs</td><td><span class="badge-no">No</span></td><td><span class="badge-yes">Yes</span></td></tr>
+  </tbody>
+</table>
+
+<div class="page-break"></div>
+
+<!-- 4. KEY DIFFERENTIATORS -->
+<h2>4. Key Differentiators</h2>
+
+<h3>4.1 Project A (Karnan) — Strengths</h3>
+<table>
+  <thead><tr><th>Feature</th><th>What it does</th><th>Why it matters</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Simulator push</strong></td><td>Injects ECG cases via admin API during tests</td><td>Doctors always have fresh cases. Tests aren't dependent on pre-existing data.</td></tr>
+    <tr><td><strong>Dynamic user provisioning</strong></td><td><code>--setup N</code> creates N users, runs test, auto-deactivates after</td><td>One command: zero to N-user load test. No manual user management.</td></tr>
+    <tr><td><strong>Auto user cleanup</strong></td><td>Deactivates test users via admin API after test</td><td>UAT stays clean. No leftover test accounts.</td></tr>
+    <tr><td><strong>Correct task/assign</strong></td><td>Calls <code>task/users</code> API to get valid username before assign</td><td>Prevents "Domain missing username" errors. Their hardcoded approach fails.</td></tr>
+    <tr><td><strong>WAF-weighted production test</strong></td><td>Each endpoint called at exact production rate from WAF logs</td><td>Realistic traffic — not equal distribution or guesswork.</td></tr>
+    <tr><td><strong>Session collision fix</strong></td><td>1:1 VU-to-user mapping without modulo</td><td>Zero risk of two VUs invalidating each other's sessions.</td></tr>
+    <tr><td><strong>Single IMAP batch</strong></td><td>One Gmail connection for all password resets</td><td>Scales to 50+ users without Gmail rate limits.</td></tr>
+  </tbody>
+</table>
+
+<h3>4.2 Project B (Suresh) — Strengths</h3>
+<table>
+  <thead><tr><th>Feature</th><th>What it does</th><th>Why it matters</th></tr></thead>
+  <tbody>
+    <tr><td><strong>WebSocket testing</strong></td><td>Full Socket.IO load test — heartbeat, activity events, custom metrics</td><td>Tests real-time notification infrastructure. Doctors rely on live updates.</td></tr>
+    <tr><td><strong>Diagnosis submission</strong></td><td>Complete workflow: open case, review 30-60s, submit diagnosis</td><td>Tests the most critical business action. Project A stops at viewing.</td></tr>
+    <tr><td><strong>Custom k6 metrics</strong></td><td>Named metrics: loginDuration, dashboardLoadDuration, caseOpenDuration</td><td>Pinpoints which phase is slow. Default metrics only show aggregate.</td></tr>
+    <tr><td><strong>Grafana + InfluxDB</strong></td><td>Real-time dashboards with VU timeline, error rate, p95 per endpoint</td><td>Visual monitoring during test runs, not just after.</td></tr>
+    <tr><td><strong>Browser tests</strong></td><td>k6 Chromium tests — real DOM interaction, Web Vitals</td><td>Tests actual rendering and JavaScript execution.</td></tr>
+    <tr><td><strong>Soak test</strong></td><td>20 VUs for 2 hours</td><td>Catches memory leaks and degradation over time.</td></tr>
+    <tr><td><strong>Probabilistic routing</strong></td><td>40% dashboard, 30% ECG, 15% filter, 15% multi-case</td><td>Simulates realistic user behavior mix.</td></tr>
+  </tbody>
+</table>
+
+<!-- 5. USER PROVISIONING -->
+<h2>5. User Provisioning</h2>
+
+<p>Both projects create test doctor accounts via the Atlas Admin API. The approaches differ significantly:</p>
+
+<table>
+  <thead><tr><th>Step</th><th>Project A (Karnan)</th><th>Project B (Suresh)</th></tr></thead>
+  <tbody>
+    <tr><td>1. Authentication</td><td><code>CDS_ADMIN_COOKIE</code> env var (tlas cookie)</td><td><code>ATLAS_SESSION</code> env var (different cookie name)</td></tr>
+    <tr><td>2. Create user</td><td><code>POST /api/hubdoctor</code></td><td><code>POST /api/hubdoctor</code></td></tr>
+    <tr><td>3. Set password</td><td>IMAP: fetch reset email, extract token, set password</td><td>Assumes default password works (no verification)</td></tr>
+    <tr><td>4. Run test</td><td>Automatic (same command)</td><td>Manual (separate command)</td></tr>
+    <tr><td>5. Cleanup</td><td>Auto-deactivate created users</td><td>No cleanup</td></tr>
+    <tr><td>Automation level</td><td><strong>Fully automated, single command</strong></td><td>Manual, multi-step</td></tr>
+  </tbody>
+</table>
+
+<div class="highlight-box">
+  <p><strong>Note:</strong> On the UAT environment, newly created users cannot login without the IMAP password reset flow. This was verified by creating a test user and attempting login — it returns 401 "Incorrect credentials". The IMAP approach is required for our environment.</p>
+</div>
+
+<div class="page-break"></div>
+
+<!-- 6. SESSION MANAGEMENT -->
+<h2>6. Session Management</h2>
+
+<p>The CDS server allows only one active session per user. A second login invalidates the first token. This is the most critical design constraint for multi-VU testing.</p>
+
+<table>
+  <thead><tr><th>Aspect</th><th>Project A (Karnan)</th><th>Project B (Suresh)</th></tr></thead>
+  <tbody>
+    <tr><td>VU-to-user mapping</td><td><code>USERS[__VU - 1]</code> — direct index, skip if out of bounds</td><td><code>USERS[(__VU - 1) % length]</code> — modulo wrap</td></tr>
+    <tr><td>Collision risk</td><td><span class="badge-fixed">None</span></td><td><span class="badge-no">Present</span> — wraps when simulator VUs shift IDs</td></tr>
+    <tr><td>Single-user tests</td><td>Each VU gets unique user</td><td>All VUs share one token from setup()</td></tr>
+    <tr><td>Token refresh</td><td>On 401, re-login</td><td>On 401, re-login</td></tr>
+  </tbody>
+</table>
+
+<div class="highlight-box">
+  <p><strong>Bug found in Project B:</strong> The modulo mapping <code>(__VU - 1) % USERS.length</code> causes two VUs to share the same user when the simulator scenario allocates VU IDs that push doctor VU IDs beyond the user count. This was identified and fixed in Project A.</p>
+</div>
+
+<!-- 7. INFRASTRUCTURE -->
+<h2>7. Infrastructure &amp; Tooling</h2>
+
+<table>
+  <thead><tr><th>Tool</th><th>Project A</th><th>Project B</th></tr></thead>
+  <tbody>
+    <tr><td>k6 Cloud dashboards</td><td><span class="badge-yes">Yes</span></td><td><span class="badge-yes">Yes</span></td></tr>
+    <tr><td>Grafana + InfluxDB (local)</td><td><span class="badge-no">No</span></td><td><span class="badge-yes">Docker Compose</span></td></tr>
+    <tr><td>CI/CD</td><td>GitHub Actions (smoke + cloud push)</td><td>GitHub Actions (lint + health check)</td></tr>
+    <tr><td>Code quality</td><td>None</td><td>Biome + Husky pre-commit</td></tr>
+    <tr><td>Documentation</td><td>PROGRESS.md, CLAUDE.md</td><td>Astro site (40+ pages)</td></tr>
+    <tr><td>Run commands</td><td>npm scripts</td><td>Makefile (30+ targets)</td></tr>
+  </tbody>
+</table>
+
+<!-- 8. RECOMMENDATIONS -->
+<h2>8. Recommendations</h2>
+
+<h3>Must have — closes critical testing gaps</h3>
+<table>
+  <thead><tr><th>#</th><th>Feature</th><th>Reason</th></tr></thead>
+  <tbody>
+    <tr><td><span class="priority-high">1</span></td><td>WebSocket / Socket.IO testing</td><td>Doctors depend on real-time notifications. Untested today.</td></tr>
+    <tr><td><span class="priority-high">2</span></td><td>Diagnosis submission (<code>POST /diagnose</code>)</td><td>Most critical business action. Current tests stop at viewing the case.</td></tr>
+    <tr><td><span class="priority-high">3</span></td><td>Custom k6 metrics</td><td>Need per-phase timing to pinpoint bottlenecks.</td></tr>
+  </tbody>
+</table>
+
+<h3>Should have — improves test quality</h3>
+<table>
+  <thead><tr><th>#</th><th>Feature</th><th>Reason</th></tr></thead>
+  <tbody>
+    <tr><td><span class="priority-med">4</span></td><td>Grafana + InfluxDB dashboards</td><td>Real-time visibility during test runs.</td></tr>
+    <tr><td><span class="priority-med">5</span></td><td>Soak test (2-hour endurance)</td><td>Catch memory leaks before production.</td></tr>
+    <tr><td><span class="priority-med">6</span></td><td><code>http.batch()</code> for dashboard calls</td><td>Match real browser parallel loading.</td></tr>
+    <tr><td><span class="priority-med">7</span></td><td>Health check script</td><td>Fast CI gate before running full test suites.</td></tr>
+  </tbody>
+</table>
+
+<h3>Should fix — current limitations</h3>
+<table>
+  <thead><tr><th>#</th><th>Issue</th><th>Current state</th><th>Desired state</th></tr></thead>
+  <tbody>
+    <tr><td><span class="priority-med">A</span></td><td>IMAP dependency for user provisioning</td><td>Creating users requires reading password reset emails via Gmail IMAP — slow, fragile, rate-limited</td><td>Direct password setting via admin API (no email dependency). Needs backend support or API change.</td></tr>
+    <tr><td><span class="priority-med">B</span></td><td>Skipped user conflict</td><td>If <code>--setup N</code> finds existing users with same prefix, they are skipped and excluded (password unknown)</td><td>Auto-increment to unused slots, or timestamp-based prefix for guaranteed uniqueness</td></tr>
+  </tbody>
+</table>
+
+<h3>Nice to have — polish and convenience</h3>
+<table>
+  <thead><tr><th>#</th><th>Feature</th><th>Reason</th></tr></thead>
+  <tbody>
+    <tr><td><span class="priority-low">8</span></td><td>Browser tests (Chromium)</td><td>Test real rendering and Web Vitals.</td></tr>
+    <tr><td><span class="priority-low">9</span></td><td>Probabilistic VU routing</td><td>More realistic traffic mix.</td></tr>
+    <tr><td><span class="priority-low">10</span></td><td>Makefile</td><td>Convenience for common commands.</td></tr>
+  </tbody>
+</table>
+
+</body>
+</html>

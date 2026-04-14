@@ -32,7 +32,7 @@ function hasFlag(name) {
 const APP        = getArg('app', 'cds')
 const SCRIPT     = getArg('script', 'smoke')
 const SETUP_COUNT = getArg('setup', null)
-const PREFIX     = getArg('prefix', 'lt')
+const PREFIX     = getArg('prefix', 'ltkr')
 const PASSWORD   = getArg('password', 'tricog123')
 const CLOUD      = hasFlag('cloud')
 
@@ -122,9 +122,11 @@ async function provisionUsers(count) {
     }
   }
 
-  // Skipped users (already exist)
-  for (const user of users.filter(u => u.skipped)) {
-    readyUsers.push({ domainId: process.env.ADMIN_DOMAIN || 'UatDomain3', username: user.userName, password: PASSWORD })
+  // Skipped users (already exist) — NOT added to ready list
+  // We can't guarantee their password matches PASSWORD
+  const skippedCount = users.filter(u => u.skipped).length
+  if (skippedCount > 0) {
+    console.log(`  ⚠ ${skippedCount} users skipped (already exist) — not included (password unknown)`)
   }
 
   console.log(`\n✓ ${readyUsers.length} users ready\n`)
