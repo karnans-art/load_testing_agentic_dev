@@ -4,9 +4,6 @@
   "description": "Production-replay load testing platform — simulates real traffic from WAF logs + HAR files",
   "type": "module",
   "scripts": {
-    "ingest:cds": "node runner/run.js --app cds --step ingest",
-    "generate:cds": "node runner/run.js --app cds --step generate",
-    "run:cds": "node runner/run.js --app cds --step run",
     "smoke:cds":            "node runner/run-test.js --app cds --script smoke",
     "smoke:cds:cloud":      "node runner/run-test.js --app cds --script smoke --cloud",
     "peak:cds":             "node runner/run-test.js --app cds --script peak",
@@ -14,13 +11,10 @@
     "stress:cds":           "node runner/run-test.js --app cds --script stress",
     "stress:cds:cloud":     "node runner/run-test.js --app cds --script stress --cloud",
     "production:cds":       "node runner/run-test.js --app cds --script production",
-    "production:cds:cloud": "node runner/run-test.js --app cds --script production --cloud",
-    "full:cds": "node runner/run.js --app cds"
+    "production:cds:cloud": "node runner/run-test.js --app cds --script production --cloud"
   },
   "dependencies": {
     "dotenv": "^17.4.1",
-    "imapflow": "^1.3.1",
-    "playwright": "^1.59.1",
-    "xlsx": "^0.18.5"
+    "imapflow": "^1.3.1"
   }
 }

@@ -83,11 +83,16 @@ export async function createUser(tlasCookie, n, prefix = 'lt') {
   }
 }
 
-// ── Step 3: IMAP — read reset email and extract token ──────────
-export async function findResetToken(userName, maxRetries = 10) {
+// ── Step 3: IMAP — batch fetch all reset tokens in one connection ──
+export async function findResetTokens(userNames, maxRetries = 10) {
   const emailLocal = EMAIL_BASE.split('@')[0]
   const emailDomain = EMAIL_BASE.split('@')[1]
-  const targetEmail = `${emailLocal}+${userName}@${emailDomain}`
+
+  // Map: userName → target email
+  const targets = {}
+  for (const userName of userNames) {
+    targets[userName] = { email: `${emailLocal}+${userName}@${emailDomain}`, token: null }
+  }
 
   const client = new ImapFlow({
     host: 'imap.gmail.com',
@@ -102,51 +107,61 @@ export async function findResetToken(userName, maxRetries = 10) {
     await client.mailboxOpen('INBOX')
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const pending = userNames.filter(u => !targets[u].token)
+      if (pending.length === 0) break
+
       const messages = await client.search({
         since: new Date(Date.now() - 2 * 60 * 60 * 1000),
       })
 
-      for (let i = messages.length - 1; i >= Math.max(0, messages.length - 50); i--) {
+      for (let i = messages.length - 1; i >= Math.max(0, messages.length - 100); i--) {
         const msg = await client.fetchOne(messages[i], { source: true })
         let body = msg.source.toString()
-        if (!body.includes(targetEmail)) continue
 
-        body = body.replace(/=\r?\n/g, '')
-        body = body.replace(/=3D/g, '=').replace(/=26/g, '&')
+        // Check which user this email belongs to
+        for (const userName of pending) {
+          if (!body.includes(targets[userName].email)) continue
 
-        const directMatch = body.match(/password\/new\?token=([a-f0-9-]+)/i)
-        if (directMatch) {
-          await client.logout()
-          return directMatch[1]
-        }
+          let decoded = body.replace(/=\r?\n/g, '')
+          decoded = decoded.replace(/=3D/g, '=').replace(/=26/g, '&')
 
-        const trackingUrls = body.match(/https:\/\/email\.mail\.tricogdev\.net\/c\/[^\s"<>]+/g) || []
-        for (const url of trackingUrls) {
-          try {
-            const res = await fetch(url, { redirect: 'manual' })
-            const location = res.headers.get('location') || ''
-            const tokenMatch = location.match(/password\/new\?token=([a-f0-9-]+)/i)
-            if (tokenMatch) {
-              await client.logout()
-              return tokenMatch[1]
-            }
-          } catch (_) {}
+          const directMatch = decoded.match(/password\/new\?token=([a-f0-9-]+)/i)
+          if (directMatch) {
+            targets[userName].token = directMatch[1]
+            break
+          }
+
+          const trackingUrls = decoded.match(/https:\/\/email\.mail\.tricogdev\.net\/c\/[^\s"<>]+/g) || []
+          for (const url of trackingUrls) {
+            try {
+              const res = await fetch(url, { redirect: 'manual' })
+              const location = res.headers.get('location') || ''
+              const tokenMatch = location.match(/password\/new\?token=([a-f0-9-]+)/i)
+              if (tokenMatch) {
+                targets[userName].token = tokenMatch[1]
+                break
+              }
+            } catch (_) {}
+          }
+          break
         }
       }
 
+      const remaining = userNames.filter(u => !targets[u].token)
+      if (remaining.length === 0) break
       if (attempt < maxRetries) {
-        process.stdout.write(` retry ${attempt}/${maxRetries}...`)
+        process.stdout.write(`  retry ${attempt}/${maxRetries} (${remaining.length} pending)...`)
         await new Promise(r => setTimeout(r, 3000))
       }
     }
 
     await client.logout()
-    return null
   } catch (err) {
     console.log(` IMAP error: ${err.message}`)
     try { await client.logout() } catch (_) {}
-    return null
   }
+
+  return targets
 }
 
 // ── Step 4: Set password via reset token ───────────────────────
@@ -164,4 +179,36 @@ export async function setPassword(token, password) {
   })
 
   return res.status >= 200 && res.status < 300
+}
+
+// ── Step 5: Deactivate user after load test ───────────────────
+export async function deactivateUser(tlasCookie, userName) {
+  const res = await fetch(`${ADMIN_URL}/api/hub/toggle-status`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type':     'application/json',
+      'cookie':           `tlas=${tlasCookie}`,
+      'domain':           ADMIN_DOMAIN,
+      'clientdevicetype': 'Linux x86_64',
+      'clientos':         'ATLAS_ADMIN',
+      'clientosversion':  '5.0 (X11; Linux x86_64)',
+      'clientversion':    '2.10.0',
+    },
+    body: JSON.stringify({
+      username: userName,
+      status: 'DEACTIVATED',
+      userActionReason: 'Load test cleanup — auto-deactivated',
+    }),
+  })
+
+  const status = res.status
+  if (status >= 200 && status < 300) {
+    console.log(`  ✓ Deactivated ${userName}`)
+    return true
+  } else {
+    let body = ''
+    try { body = await res.text() } catch (_) {}
+    console.log(`  ✗ Failed to deactivate ${userName}: ${status} — ${body.slice(0, 200)}`)
+    return false
+  }
 }

@@ -76,7 +76,7 @@ process.on('SIGTERM', () => { cleanup(); process.exit(143) })
 // ── Setup: provision users on-the-fly ──────────────────────────
 async function provisionUsers(count) {
   // Dynamic import of the provisioning module
-  const { getAdminSession, createUser, findResetToken, setPassword } = await import('./setup/provision-lib.js')
+  const { getAdminSession, createUser, findResetTokens, setPassword } = await import('./setup/provision-lib.js')
 
   console.log(`\n🔧 Setting up ${count} test users (prefix: ${PREFIX})...\n`)
 
@@ -95,7 +95,7 @@ async function provisionUsers(count) {
     await new Promise(r => setTimeout(r, 500))
   }
 
-  // Step 3 & 4: Set passwords for new users
+  // Step 3 & 4: Batch fetch reset tokens (single IMAP connection) + set passwords
   const newUsers = users.filter(u => !u.skipped)
   const readyUsers = []
 
@@ -103,9 +103,11 @@ async function provisionUsers(count) {
     console.log('\n  Waiting 5s for reset emails...')
     await new Promise(r => setTimeout(r, 5000))
 
+    const tokens = await findResetTokens(newUsers.map(u => u.userName))
+
     for (const user of newUsers) {
       process.stdout.write(`  ${user.userName}: `)
-      const token = await findResetToken(user.userName)
+      const token = tokens[user.userName]?.token
       if (token) {
         const ok = await setPassword(token, PASSWORD)
         if (ok) {
@@ -126,7 +128,7 @@ async function provisionUsers(count) {
   }
 
   console.log(`\n✓ ${readyUsers.length} users ready\n`)
-  return readyUsers
+  return { users: readyUsers, newlyCreated: newUsers.map(u => u.userName) }
 }
 
 // ── Run k6 ─────────────────────────────────────────────────────
@@ -153,16 +155,38 @@ function runK6(usersFile) {
   })
 }
 
+// ── Teardown: deactivate dynamically created users ────────────
+async function teardownUsers(createdUserNames) {
+  if (createdUserNames.length === 0) return
+
+  const { getAdminSession, deactivateUser } = await import('./setup/provision-lib.js')
+  const tlasCookie = await getAdminSession()
+  if (!tlasCookie) {
+    console.error('  ✗ Cannot deactivate users — no admin cookie')
+    return
+  }
+
+  console.log(`\n🧹 Deactivating ${createdUserNames.length} dynamic users...\n`)
+  for (const userName of createdUserNames) {
+    await deactivateUser(tlasCookie, userName)
+  }
+  console.log('')
+}
+
 // ── Main ───────────────────────────────────────────────────────
 async function main() {
+  let createdUserNames = []  // only users created in THIS run (not skipped)
+
   if (SETUP_COUNT) {
     const count = parseInt(SETUP_COUNT)
-    const users = await provisionUsers(count)
+    const { users, newlyCreated } = await provisionUsers(count)
 
     if (users.length === 0) {
       console.error('No users provisioned. Aborting.')
       process.exit(1)
     }
+
+    createdUserNames = newlyCreated
 
     // Backup original users.json, write temp users
     if (fs.existsSync(usersJsonPath)) {
@@ -177,6 +201,12 @@ async function main() {
   }
 
   const exitCode = await runK6(usersJsonPath)
+
+  // Deactivate only dynamically created users (never hardcoded ones)
+  if (createdUserNames.length > 0) {
+    await teardownUsers(createdUserNames)
+  }
+
   process.exit(exitCode)
 }
 
