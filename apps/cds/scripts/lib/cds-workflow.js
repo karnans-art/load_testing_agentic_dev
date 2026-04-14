@@ -1,10 +1,10 @@
 // CDS — Doctor Workflow
-// Full doctor flow: tasks/latest → assign → per-task endpoints → standalone endpoints
-// 19 API calls per iteration (1 + 1 + 7 + 10)
+// Full doctor flow matching cds100.js structure:
+//   List Page (grouped) → task/users → task/assign → Diagnosis Page (grouped)
 // All IDs derived from live API responses — zero hardcoding.
 
 import http from 'k6/http'
-import { check } from 'k6'
+import { check, group } from 'k6'
 import { authHeaders, getUser, getBaseUrl } from './cds-auth.js'
 
 /**
@@ -15,125 +15,84 @@ export function doctorWorkflow() {
   let headers = authHeaders()
   const BASE_URL = getBaseUrl()
   const user = getUser()
+  if (!user) return
 
-  // ── 1. tasks/latest — anchor call ────────────────────────────
-  let tasksRes = http.post(
-    `${BASE_URL}/api/v2/tasks/latest`,
-    JSON.stringify({
-      filter: {
-        doctorName: user.doctorName,
-        pageNo:     1,
-        perPage:    25,
-        stage:      'ASSIGNED_DIAGNOSED',
-        taskTypes:  'RESTING',
-      },
-      sortBy: {
-        datetime:   { enable: false },
-        timeread:   { enable: true, order: 'DESC' },
-        assignedAt: { enable: true, order: 'DESC' },
-      },
-    }),
-    { headers }
-  )
-  if (tasksRes.status === 401) {
-    headers = authHeaders(true)
-    tasksRes = http.post(`${BASE_URL}/api/v2/tasks/latest`,
-      JSON.stringify({ filter: { doctorName: user.doctorName, pageNo: 1, perPage: 25, stage: 'ASSIGNED_DIAGNOSED', taskTypes: 'RESTING' }, sortBy: { datetime: { enable: false }, timeread: { enable: true, order: 'DESC' }, assignedAt: { enable: true, order: 'DESC' } } }),
-      { headers })
-  }
-  check(tasksRes, { 'tasks/latest 2xx': (r) => r.status >= 200 && r.status < 300 })
-
-  // ── Extract task ─────────────────────────────────────────────
-  let task = null
-  try {
-    const body = tasksRes.json()
-    const tasks = body.tasks || body
-    if (Array.isArray(tasks) && tasks.length > 0) {
-      task = tasks[0]
+  // ── List Page ──────────────────────────────────────────────
+  let tasks = []
+  group('List Page', () => {
+    let tasksRes = http.post(`${BASE_URL}/api/v2/tasks/latest`, JSON.stringify({
+      filter: { doctorName: user.doctorName, pageNo: 1, perPage: 25, stage: 'ASSIGNED_DIAGNOSED', taskTypes: 'RESTING' },
+      sortBy: { datetime: { enable: false }, timeread: { enable: true, order: 'DESC' }, assignedAt: { enable: true, order: 'DESC' } },
+    }), { headers, tags: { name: 'tasks/latest' } })
+    if (tasksRes.status === 401) {
+      headers = authHeaders(true)
+      tasksRes = http.post(`${BASE_URL}/api/v2/tasks/latest`, JSON.stringify({
+        filter: { doctorName: user.doctorName, pageNo: 1, perPage: 25, stage: 'ASSIGNED_DIAGNOSED', taskTypes: 'RESTING' },
+        sortBy: { datetime: { enable: false }, timeread: { enable: true, order: 'DESC' }, assignedAt: { enable: true, order: 'DESC' } },
+      }), { headers, tags: { name: 'tasks/latest' } })
     }
-  } catch (_) {}
+    check(tasksRes, { 'tasks/latest ok': (r) => r.status === 200 })
 
-  // ── 2. Assign task ───────────────────────────────────────────
-  if (task) {
-    const assignRes = http.post(
-      `${BASE_URL}/api/v2/task/assign`,
-      JSON.stringify({
-        assignments: [{
-          username: user.doctorName,
-          taskId:   task.taskId,
-          role:     'DOCTOR',
-        }],
-      }),
-      { headers }
-    )
-    check(assignRes, { 'task/assign 2xx': (r) => r.status >= 200 && r.status < 300 })
-  }
+    const countRes = http.post(`${BASE_URL}/api/v2/tasks/count`, '{}', { headers, tags: { name: 'tasks/count' } })
+    check(countRes, { 'tasks/count ok': (r) => r.status === 200 })
 
-  // ── 3. Per-task endpoints (chained) ──────────────────────────
-  if (task) {
-    const taskId     = task.taskId
-    const caseId     = task.caseId
-    const assignedAt = task.assignedAt
+    const tasksV2Res = http.post(`${BASE_URL}/api/v2/tasks/v2`, JSON.stringify({
+      filter: { pageNo: 1, perPage: 10, startDate: '', endDate: '', caseId: '', patientId: '', taskTypes: 'RESTING', centerName: '', critical: null, state: '', stage: null, view: 'ALL' },
+      sortBy: { datetime: { enable: true, order: 'DESC' } },
+    }), { headers, tags: { name: 'tasks/v2' } })
+    check(tasksV2Res, { 'tasks/v2 ok': (r) => r.status === 200 })
 
-    const taskTests = [
-      { name: 'nextEcg',
-        fn: () => http.get(`${BASE_URL}/api/v2/nextEcg?id=${taskId}&assignedAt=${assignedAt}`, { headers }) },
-      { name: 'tasks/{id}/algo',
-        fn: () => http.get(`${BASE_URL}/api/v2/tasks/${taskId}/algo`, { headers }) },
-      { name: 'ecgData/{id}',
-        fn: () => http.get(`${BASE_URL}/api/v2/ecgData/${taskId}`, { headers }) },
-      { name: 'patient/{id}',
-        fn: () => http.get(`${BASE_URL}/api/v2/patient/${taskId}/`, { headers }) },
-      { name: 'tasks/{id}/history/count',
-        fn: () => http.get(`${BASE_URL}/api/v2/tasks/${taskId}/history/count`, { headers }) },
-      { name: 'case/{id}/comments/history',
-        fn: () => http.get(`${BASE_URL}/api/v2/case/${caseId}/comments/history`, { headers }) },
-      { name: 'config/version/viewer',
-        fn: () => http.get(`${BASE_URL}/api/v2/config/version/viewer`, { headers }) },
-    ]
+    http.get(`${BASE_URL}/api/v2/user`, { headers, tags: { name: 'user' } })
+    http.get(`${BASE_URL}/api/v2/config`, { headers, tags: { name: 'config' } })
+    http.get(`${BASE_URL}/api/v2/config/version/viewer`, { headers, tags: { name: 'config/version/viewer' } })
+    http.get(`${BASE_URL}/api/v2/language`, { headers, tags: { name: 'language' } })
+    http.get(`${BASE_URL}/api/v2/report/total/eta`, { headers, tags: { name: 'report/total/eta' } })
+    http.get(`${BASE_URL}/api/v2/report/doctor/active`, { headers, tags: { name: 'report/doctor/active' } })
+    http.post(`${BASE_URL}/api/v2/report/doctor/avg`, '{}', { headers, tags: { name: 'report/doctor/avg' } })
+    http.post(`${BASE_URL}/api/v2/report/day/avg`, '{}', { headers, tags: { name: 'report/day/avg' } })
+    http.get(`${BASE_URL}/api/v2/getQueueLength`, { headers, tags: { name: 'getQueueLength' } })
 
-    taskTests.forEach(({ name, fn }) => {
-      const res = fn()
-      if (res.status === 401) { headers = authHeaders(true) }
-      const ok = check(res, { [`${name} 2xx`]: (r) => r.status >= 200 && r.status < 300 })
-      if (!ok) console.log(`  ✗ ${name} → ${res.status} | ${res.body?.slice(0, 120)}`)
-    })
-  } else {
-    console.log(`  ⚠ No tasks found — skipping per-task endpoints`)
-  }
-
-  // ── 4. Standalone endpoints ──────────────────────────────────
-  const standaloneTests = [
-    { name: 'tasks/count',
-      fn: () => http.post(`${BASE_URL}/api/v2/tasks/count`, '{}', { headers }) },
-    { name: 'tasks/v2',
-      fn: () => http.post(`${BASE_URL}/api/v2/tasks/v2`, JSON.stringify({
-        filter: { pageNo: 1, perPage: 10, startDate: '', endDate: '', caseId: '', patientId: '',
-                  taskTypes: 'RESTING', centerName: '', critical: null, state: '', stage: null, view: 'ALL' },
-        sortBy: { datetime: { enable: true, order: 'DESC' } },
-      }), { headers }) },
-    { name: 'user',
-      fn: () => http.get(`${BASE_URL}/api/v2/user`, { headers }) },
-    { name: 'config',
-      fn: () => http.get(`${BASE_URL}/api/v2/config`, { headers }) },
-    { name: 'language',
-      fn: () => http.get(`${BASE_URL}/api/v2/language`, { headers }) },
-    { name: 'report/total/eta',
-      fn: () => http.get(`${BASE_URL}/api/v2/report/total/eta`, { headers }) },
-    { name: 'report/doctor/active',
-      fn: () => http.get(`${BASE_URL}/api/v2/report/doctor/active`, { headers }) },
-    { name: 'report/doctor/avg',
-      fn: () => http.post(`${BASE_URL}/api/v2/report/doctor/avg`, '{}', { headers }) },
-    { name: 'report/day/avg',
-      fn: () => http.post(`${BASE_URL}/api/v2/report/day/avg`, '{}', { headers }) },
-    { name: 'getQueueLength',
-      fn: () => http.get(`${BASE_URL}/api/v2/getQueueLength`, { headers }) },
-  ]
-
-  standaloneTests.forEach(({ name, fn }) => {
-    const res = fn()
-    if (res.status === 401) { headers = authHeaders(true) }
-    const ok = check(res, { [`${name} 2xx`]: (r) => r.status >= 200 && r.status < 300 })
-    if (!ok) console.log(`  ✗ ${name} → ${res.status} | ${res.body?.slice(0, 100)}`)
+    try {
+      const body = tasksRes.json()
+      tasks = body.tasks || body
+      if (!Array.isArray(tasks)) tasks = []
+    } catch (_) {}
   })
+
+  // ── Diagnosis Page — loop through each task ───────────────
+  for (const task of tasks) {
+    // Fetch assignable doctors, then assign this task
+    const usersRes = http.get(`${BASE_URL}/api/v2/task/${task.taskId}/users?role=undefined`, { headers, tags: { name: 'task/users' } })
+    check(usersRes, { 'task/users ok': (r) => r.status === 200 })
+
+    let assignable = []
+    try { assignable = usersRes.json().users || [] } catch (_) {}
+    const me = assignable.find(u => u.username.toLowerCase() === user.username.toLowerCase())
+    if (me) {
+      const assignRes = http.post(`${BASE_URL}/api/v2/task/assign`, JSON.stringify({
+        assignments: [{ username: me.username, taskId: task.taskId, role: 'DOCTOR' }],
+      }), { headers, tags: { name: 'task/assign' } })
+      check(assignRes, { 'task/assign ok': (r) => r.status >= 200 && r.status < 300 })
+    }
+
+    group('Diagnosis Page', () => {
+      const nextEcgRes = http.get(`${BASE_URL}/api/v2/nextEcg?id=${task.taskId}&assignedAt=${task.assignedAt}`, { headers, tags: { name: 'nextEcg' } })
+      check(nextEcgRes, { 'nextEcg ok': (r) => r.status === 200 })
+
+      const algoRes = http.get(`${BASE_URL}/api/v2/tasks/${task.taskId}/algo`, { headers, tags: { name: 'tasks/algo' } })
+      check(algoRes, { 'tasks/algo ok': (r) => r.status === 200 })
+
+      const ecgDataRes = http.get(`${BASE_URL}/api/v2/ecgData/${task.taskId}`, { headers, tags: { name: 'ecgData' } })
+      check(ecgDataRes, { 'ecgData ok': (r) => r.status === 200 })
+
+      const patientRes = http.get(`${BASE_URL}/api/v2/patient/${task.taskId}/`, { headers, tags: { name: 'patient' } })
+      check(patientRes, { 'patient ok': (r) => r.status === 200 })
+
+      const historyRes = http.get(`${BASE_URL}/api/v2/tasks/${task.taskId}/history/count`, { headers, tags: { name: 'tasks/history/count' } })
+      check(historyRes, { 'tasks/history/count ok': (r) => r.status === 200 })
+
+      const commentsRes = http.get(`${BASE_URL}/api/v2/case/${task.caseId}/comments/history`, { headers, tags: { name: 'case/comments/history' } })
+      check(commentsRes, { 'case/comments/history ok': (r) => r.status === 200 })
+    })
+  }
 }

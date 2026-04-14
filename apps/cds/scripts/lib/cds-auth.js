@@ -25,7 +25,9 @@ let _vuUser = null
 
 export function getUser() {
   if (!_vuUser) {
-    _vuUser = { ...USERS[(__VU - 1) % USERS.length] }
+    const idx = __VU - 1
+    if (idx >= USERS.length) return null  // no user for this VU — avoid session collision
+    _vuUser = { ...USERS[idx] }
   }
   return _vuUser
 }
@@ -37,6 +39,7 @@ export function getBaseUrl() {
 export function doLogin() {
   const BASE_URL = getBaseUrl()
   const user = getUser()
+  if (!user) return null  // no user for this VU
   const loginRes = http.post(
     `${BASE_URL}/api/v2/login`,
     JSON.stringify({

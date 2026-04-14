@@ -45,6 +45,7 @@ const ENDPOINTS = [
   { name: 'report/doctor/active',      weight: 3,  needsTask: false },
   { name: 'report/day/avg',            weight: 2,  needsTask: false },
   { name: 'getQueueLength',            weight: 2,  needsTask: false },
+  { name: 'task/users',                weight: 1,  needsTask: true  },
   { name: 'task/assign',               weight: 1,  needsTask: true  },
   { name: 'language',                  weight: 1,  needsTask: false },
 ]
@@ -91,7 +92,11 @@ let _assignedAt = null
 const TOKEN_TTL = 20000  // proactively refresh before ~27s server expiry
 
 function getUser() {
-  if (!_vuUser) _vuUser = { ...USERS[(__VU - 1) % USERS.length] }
+  if (!_vuUser) {
+    const idx = __VU - 1
+    if (idx >= USERS.length) return null  // no user for this VU — avoid session collision
+    _vuUser = { ...USERS[idx] }
+  }
   return _vuUser
 }
 
@@ -101,6 +106,7 @@ function ensureAuth() {
   }
 
   const user = getUser()
+  if (!user) return HEADERS  // no user for this VU
 
   // Login
   const loginRes = http.post(`${BASE_URL}/api/v2/login`,
@@ -252,10 +258,21 @@ function callEndpoint(name, h) {
       return http.get(`${BASE_URL}/api/v2/getQueueLength`,
         { headers: h, tags: { name: 'getQueueLength' } })
 
-    case 'task/assign':
+    case 'task/users':
+      return http.get(`${BASE_URL}/api/v2/task/${_taskId}/users?role=undefined`,
+        { headers: h, tags: { name: 'task/users' } })
+
+    case 'task/assign': {
+      // Fetch assignable doctors first, use correct username
+      const usersRes = http.get(`${BASE_URL}/api/v2/task/${_taskId}/users?role=undefined`, { headers: h, tags: { name: 'task/users' } })
+      let assignable = []
+      try { assignable = usersRes.json().users || [] } catch (_) {}
+      const me = assignable.find(u => u.username.toLowerCase() === user.username.toLowerCase())
+      if (!me) return usersRes
       return http.post(`${BASE_URL}/api/v2/task/assign`,
-        JSON.stringify({ assignments: [{ username: user.doctorName, taskId: _taskId, role: 'DOCTOR' }] }),
+        JSON.stringify({ assignments: [{ username: me.username, taskId: _taskId, role: 'DOCTOR' }] }),
         { headers: h, tags: { name: 'task/assign' } })
+    }
 
     case 'language':
       return http.get(`${BASE_URL}/api/v2/language`,

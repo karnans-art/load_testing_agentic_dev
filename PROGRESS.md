@@ -38,7 +38,10 @@
 - [x] `GET /api/v2/language`
 - [x] `GET /api/v2/report/total/eta`
 - [x] `GET /api/v2/report/doctor/active`
+- [x] Refactored: grouped into List Page + Diagnosis Page (loops all tasks)
+- [x] Added setup() / teardown()
 - [ ] `POST /api/v2/doctor-stat/` — **BLOCKED: need correct curl from DevTools** ⚠️
+- [ ] Add simulator push (like cds100.js) for task injection
 
 ### Shared Workflow Lib (`apps/cds/scripts/lib/`)
 - [x] `cds-auth.js` — per-VU login, updateActive, profile fetch, auto-refresh on 401
@@ -65,10 +68,107 @@
 - [x] Session conflict fix — 1 user = 1 VU, no cross-VU invalidation
 - [ ] Validate full 10-min run — all 19 endpoints passing <5% failure
 
-### Scale to 1000 Users
-- [ ] Add 1000 test user credentials to `apps/cds/users.json`
-- [ ] Verify server supports 1000 concurrent sessions
+### Standalone Test (`tests/cds100.js`) — Spec: `specs/cds100-test-spec.md`
+- [x] Per-VU login (moved from setup to default — fixes multi-VU session conflicts)
+- [x] List Page group: 12 standalone API calls
+- [x] Diagnosis Page group: loops through ALL tasks (6 calls per task)
+- [x] Admin simulator push in setup() — `POST /api/case/simulator` injects tasks before test
+- [x] Abort on simulator failure — VUs skip if no tasks can be pushed
+- [x] `ADMIN_COOKIE` as env var — user pastes fresh cookie before each run
+- [x] `.csi` ECG file stored at `apps/cds/fixtures/sample.csi`
+
+### Scale to N Users (VUs = Users)
+- [x] Dynamic VU scaling — all scripts auto-set VUs = `users.json` user count
+- [x] Confirmed: 3 users / 3 VUs → 0% failure | 10 VUs / 3 users → 51% failure (session conflicts)
+- [ ] Add 10+ test user credentials to `apps/cds/users.json`
+- [ ] Verify server supports N concurrent sessions
 - [ ] Switch to `k6 cloud` for production-scale run
+
+### Test User Provisioning — Automated Setup Script
+
+**Approach:** Playwright (Google Sign-In) → Script (API calls) → Gmail API (password reset) → users.json
+
+#### Step 1: Playwright — Google Sign-In
+- Open `https://uat-ecg-atlasadmin.tricogdev.net/login`
+- Complete Google Sign-In flow
+- Extract `tlas` session cookie from browser context
+- Close browser — no browser needed after this
+
+#### Step 2: Script — Create N Users via Admin API
+- **Endpoint:** `POST https://uat-ecg-atlasadmin.tricogdev.net/api/hubdoctor`
+- **Auth:** Cookie `tlas=<session>` + Header `domain: UatDomain3`
+- **Content-Type:** `multipart/form-data`
+
+**⚠️ CRITICAL RULE: username MUST match the email alias**
+```
+Email:    karnan.s+lt001@tricog.com  →  userName: lt001
+Email:    karnan.s+lt002@tricog.com  →  userName: lt002
+Email:    karnan.s+lt150@tricog.com  →  userName: lt150
+```
+The `+alias` part of the email = the `userName`. They MUST be identical.
+
+**Dynamic body fields per user (N = 001, 002, ... 300):**
+| Field | Pattern | Example (N=001) |
+|-------|---------|-----------------|
+| `userName` | `lt{N}` | `lt001` |
+| `fullName` | `LoadTest Doctor {N}` | `LoadTest Doctor 001` |
+| `email` | `karnan.s+lt{N}@tricog.com` | `karnan.s+lt001@tricog.com` |
+| `phoneNumber` | `90489{N padded to 5}` | `9048900001` |
+| `registrationNumber` | `LT{N padded}` | `LT00001` |
+
+**Static body fields (same for all users):**
+| Field | Value |
+|-------|-------|
+| `role` | `DOCTOR` |
+| `qualifications` | `mbbs` |
+| `designation` | `doctor` |
+| `noSignature` | `0` |
+| `signatureId` | (empty) |
+| `timeZone` | `Asia/Kolkata` |
+| `privileges` | `{"viewCase":"ALL","diagnosisType":"TEXT","assignment":"ALL","assignmentNotification":0,"assignmentRemainders":{"hours":[],"enabled":0},"platformAccess":{"web":1,"mobile":1}}` |
+| `userActionReason` | `Load testing user provisioning` |
+
+#### Step 3: Gmail API — Read Password Reset Emails
+- All emails land in `karnan.s@tricog.com` (Gmail `+` alias)
+- Use Gmail API to search: `to:karnan.s+lt001@tricog.com`
+- Extract the reset link/token from each email body
+- Token is DB-generated, cannot be predicted — MUST read from email
+
+#### Step 4: Script — Set Password via Reset API
+- **Endpoint:** `POST https://uat-ecg.tricogdev.net/api/v2/password/update`
+- **Content-Type:** `application/json`
+- **Auth:** None needed — the reset token IS the auth
+- **Body:** `{ "password": "tricog123", "token": "<token-from-email>" }`
+- **Reset link format:** `https://uat-ecg.tricogdev.net/password/new?token=<uuid>`
+- Extract the UUID token from the reset link in the email body
+- Set same password for all load test users (`tricog123`)
+
+#### Step 5: Write users.json
+- Script writes all created users to `apps/cds/users.json`
+- Load tests auto-scale VUs to match user count
+
+#### Complete Automated Flow
+```
+Playwright: Google Sign-In → get tlas cookie
+    ↓
+Loop N times:
+    POST /api/hubdoctor (tlas cookie) → create user lt001..lt300
+    ↓
+    Gmail API → search "to:karnan.s+lt{N}@tricog.com"
+    ↓
+    Extract reset token UUID from email body
+    ↓
+    POST /api/v2/password/update { password: "tricog123", token: "<uuid>" }
+    ↓
+    Append { domainId: "Uatdomain3", username: "lt{N}", password: "tricog123" } to users.json
+    ↓
+Done → k6 load tests auto-scale VUs = N users
+```
+
+#### Pending Items (from Karnan)
+- [ ] Google account credentials for Playwright Sign-In to admin portal
+- [ ] Google OAuth consent / app password for Gmail API access (to read reset emails)
+- [ ] Confirm: is `karnan.s@tricog.com` the same account for both admin Sign-In and receiving reset emails?
 
 ---
 

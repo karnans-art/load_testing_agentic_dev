@@ -3,3 +3,5 @@ node_modules/
 apps/*/reports/
 apps/*/discovered/
 *.har
+runner/setup/.auth/
+apps/*/.tmp-users.json
