@@ -183,6 +183,7 @@ export function doctorFlow() {
         assignments: [{ username: me.username, taskId: task.taskId, role: 'DOCTOR' }],
       }), { headers: h, tags: { name: 'task/assign' } });
       const assignOk = check(assignRes, { 'task/assign ok': (r) => r.status >= 200 && r.status < 300 });
+      console.log(assignRes.body)
       if (!assignOk) {
         console.error(`[VU${__VU}] task/assign failed: ${assignRes.status} — ${assignRes.body?.substring(0, 300)}`);
       }

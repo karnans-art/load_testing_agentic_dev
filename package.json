@@ -9,8 +9,6 @@
     "run:cds": "node runner/run.js --app cds --step run",
     "smoke:cds":            "node runner/run-test.js --app cds --script smoke",
     "smoke:cds:cloud":      "node runner/run-test.js --app cds --script smoke --cloud",
-    "normal:cds":           "node runner/run-test.js --app cds --script normal",
-    "normal:cds:cloud":     "node runner/run-test.js --app cds --script normal --cloud",
     "peak:cds":             "node runner/run-test.js --app cds --script peak",
     "peak:cds:cloud":       "node runner/run-test.js --app cds --script peak --cloud",
     "stress:cds":           "node runner/run-test.js --app cds --script stress",

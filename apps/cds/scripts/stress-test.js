@@ -1,20 +1,36 @@
 // CDS — Stress Test
 // Ramps from 1x → 5x production rate to find breaking point
-// 1x = 6 workflows/min (114 req/min), 5x = 30 workflows/min (570 req/min)
+// Includes simulator pushing cases + doctor workflows
 // Run: k6 run apps/cds/scripts/stress-test.js
 
-import { sleep } from 'k6'
+import http from 'k6/http'
+import { check, sleep } from 'k6'
 import { authHeaders, isLoggedIn } from './lib/cds-auth.js'
 import { doctorWorkflow } from './lib/cds-workflow.js'
 
+const USERS = JSON.parse(open('../users.json')).users
+
+const ADMIN_URL = __ENV.SIMULATOR_ADMIN_URL || 'https://uat-admin.tricogdev.net'
+const ADMIN_COOKIE = __ENV.TRICOG_ADMIN_COOKIE || ''
+const CSI_FILE = open('../fixtures/sample.csi', 'b')
+
 export const options = {
   scenarios: {
-    stress_ramp: {
-      executor: 'ramping-arrival-rate',
-      startRate: 6,                // 1x production
-      timeUnit: '1m',
-      preAllocatedVUs: 10,
-      maxVUs: 200,
+    simulator: {
+      executor:        'constant-arrival-rate',
+      rate:            6,
+      timeUnit:        '1m',
+      duration:        '30m',
+      preAllocatedVUs: 1,
+      maxVUs:          4,
+      exec:            'simulatorPush',
+    },
+    doctors: {
+      executor:          'ramping-arrival-rate',
+      startRate:         6,
+      timeUnit:          '1m',
+      preAllocatedVUs:   USERS.length,
+      maxVUs:            200,
       stages: [
         { duration: '5m', target: 6 },    // 1x — baseline
         { duration: '5m', target: 12 },   // 2x
@@ -23,18 +39,49 @@ export const options = {
         { duration: '5m', target: 30 },   // 5x — breaking point?
         { duration: '5m', target: 0 },    // recovery
       ],
-      tags: { app: 'cds', scenario: 'stress' },
+      exec:              'doctorFlow',
+      startTime:         '2s',
     },
   },
   thresholds: {
-    http_req_failed:   ['rate<0.20'],     // relaxed — stress test is supposed to push limits
+    http_req_failed:   ['rate<0.20'],
     http_req_duration: ['p(95)<10000'],
   },
 }
 
-export default function () {
+export function simulatorPush() {
+  const res = http.post(`${ADMIN_URL}/api/case/simulator`, {
+    centerId:  '3520',
+    caseType:  'RESTING',
+    clientUrl: 'http://cloud-server/simulate',
+    deviceId:  'HE-BE68A686',
+    file:      http.file(CSI_FILE, 'sample.csi', 'application/octet-stream'),
+  }, {
+    headers: {
+      'cookie':          ADMIN_COOKIE,
+      'x-custom-header': 'foobar',
+    },
+    tags: { name: 'simulator' },
+  })
+
+  const ok = check(res, { 'simulator push ok': (r) => r.status >= 200 && r.status < 300 })
+  if (!ok) {
+    console.error(`Simulator push failed: ${res.status} — ${res.body?.slice(0, 200)}`)
+  }
+}
+
+export function doctorFlow() {
   authHeaders()
   if (!isLoggedIn()) { sleep(1); return }
 
   doctorWorkflow()
+  sleep(1)
+}
+
+export function setup() {
+  console.log('Starting stress test — ramping 1x → 5x production rate')
+}
+
+export function teardown() {
+  console.log('Stress test complete')
 }

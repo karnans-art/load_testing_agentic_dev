@@ -1,102 +1,27 @@
 // Provisioning Library — reusable functions for user creation
 // Used by both provision-users.js (standalone) and run-test.js (integrated)
+//
+// Requires: CDS_ADMIN_COOKIE env var (tlas cookie from uat-ecg-atlasadmin.tricogdev.net)
 
-import { chromium } from 'playwright'
 import { ImapFlow } from 'imapflow'
-import fs from 'fs'
-import path from 'path'
-import { fileURLToPath } from 'url'
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const AUTH_DIR = path.join(__dirname, '.auth')
-const STORAGE_FILE = path.join(AUTH_DIR, 'admin-session.json')
 
 const ADMIN_URL         = process.env.ADMIN_URL || 'https://uat-ecg-atlasadmin.tricogdev.net'
 const ADMIN_DOMAIN      = process.env.ADMIN_DOMAIN || 'UatDomain3'
 const CDS_URL           = process.env.BASE_URL || 'https://uat-ecg.tricogdev.net'
 const GOOGLE_EMAIL      = process.env.GOOGLE_EMAIL
-const GOOGLE_PASSWORD   = process.env.GOOGLE_PASSWORD
 const GOOGLE_APP_PASSWORD = process.env.GOOGLE_APP_PASSWORD
 const EMAIL_BASE        = GOOGLE_EMAIL
 
-// ── Step 1: Google Sign-In → get tlas cookie ───────────────────
+// ── Step 1: Read admin cookie from env ────────────────────────
 export async function getAdminSession() {
-  fs.mkdirSync(AUTH_DIR, { recursive: true })
-
-  const hasSession = fs.existsSync(STORAGE_FILE)
-
-  const browser = await chromium.launch({
-    headless: hasSession,
-  })
-
-  const context = hasSession
-    ? await browser.newContext({ storageState: STORAGE_FILE })
-    : await browser.newContext()
-
-  const page = await context.newPage()
-
-  // Check if session is still valid
-  await page.goto(`${ADMIN_URL}/api/loggedIn`, { waitUntil: 'domcontentloaded' })
-  const text = await page.textContent('body')
-
-  try {
-    const parsed = JSON.parse(text)
-    if (parsed && parsed.email) {
-      console.log(`  ✓ Reusing saved admin session (${parsed.email})`)
-      const cookies = await context.cookies()
-      const tlas = cookies.find(c => c.name === 'tlas')
-      await browser.close()
-      return tlas?.value
-    }
-  } catch (_) {}
-
-  // Need fresh login
-  console.log('  → Opening browser for Google Sign-In...')
-  if (hasSession) {
-    await browser.close()
-    const visibleBrowser = await chromium.launch({ headless: false })
-    const visibleContext = await visibleBrowser.newContext()
-    const visiblePage = await visibleContext.newPage()
-    return await doGoogleSignIn(visibleBrowser, visibleContext, visiblePage)
+  const cookie = process.env.CDS_ADMIN_COOKIE
+  if (!cookie) {
+    console.error('  ✗ CDS_ADMIN_COOKIE env var is not set')
+    console.error('    Get it from: https://uat-ecg-atlasadmin.tricogdev.net → browser cookies → tlas value')
+    return null
   }
-  return await doGoogleSignIn(browser, context, page)
-}
-
-async function doGoogleSignIn(browser, context, page) {
-  await page.goto(`${ADMIN_URL}/login`, { waitUntil: 'networkidle' })
-
-  const googleBtn = page.locator('button:has-text("Google"), a:has-text("Google"), [class*="google"]').first()
-  if (await googleBtn.isVisible()) {
-    await googleBtn.click()
-  }
-
-  await page.waitForURL(/accounts\.google\.com/, { timeout: 10000 }).catch(() => {})
-
-  if (page.url().includes('accounts.google.com')) {
-    const emailInput = page.locator('input[type="email"]')
-    if (await emailInput.isVisible()) {
-      await emailInput.fill(GOOGLE_EMAIL)
-      await page.locator('#identifierNext').click()
-      await page.waitForTimeout(3000)
-    }
-
-    const passInput = page.locator('input[type="password"]')
-    if (await passInput.isVisible()) {
-      await passInput.fill(GOOGLE_PASSWORD)
-      await page.locator('#passwordNext').click()
-    }
-
-    console.log('    Waiting for sign-in (complete 2FA if prompted)...')
-    await page.waitForURL(`${ADMIN_URL}/**`, { timeout: 120000 })
-  }
-
-  console.log('  ✓ Google Sign-In complete')
-  await context.storageState({ path: STORAGE_FILE })
-
-  const cookies = await context.cookies()
-  const tlas = cookies.find(c => c.name === 'tlas')
-  await browser.close()
-  return tlas?.value
+  console.log('  ✓ Using CDS_ADMIN_COOKIE from env')
+  return cookie
 }
 
 // ── Step 2: Create user via admin API ──────────────────────────
