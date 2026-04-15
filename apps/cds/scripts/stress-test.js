@@ -9,6 +9,8 @@ import { authHeaders, isLoggedIn } from './lib/cds-auth.js'
 import { doctorWorkflow } from './lib/cds-workflow.js'
 
 const USERS = JSON.parse(open('../users.json')).users
+const MAX_VUS = parseInt(__ENV.MAX_VUS || '0')
+const VU_COUNT = MAX_VUS > 0 ? Math.min(MAX_VUS, USERS.length) : USERS.length
 
 const ADMIN_URL = __ENV.SIMULATOR_ADMIN_URL || 'https://uat-admin.tricogdev.net'
 const ADMIN_COOKIE = __ENV.TRICOG_ADMIN_COOKIE || ''
@@ -29,8 +31,8 @@ export const options = {
       executor:          'ramping-arrival-rate',
       startRate:         6,
       timeUnit:          '1m',
-      preAllocatedVUs:   USERS.length,
-      maxVUs:            200,
+      preAllocatedVUs:   VU_COUNT,
+      maxVUs:            VU_COUNT,
       stages: [
         { duration: '5m', target: 6 },    // 1x — baseline
         { duration: '5m', target: 12 },   // 2x

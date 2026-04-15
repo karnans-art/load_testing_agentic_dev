@@ -9,6 +9,8 @@ import { authHeaders, isLoggedIn } from './lib/cds-auth.js'
 import { doctorWorkflow } from './lib/cds-workflow.js'
 
 const USERS = JSON.parse(open('../users.json')).users
+const MAX_VUS = parseInt(__ENV.MAX_VUS || '0')
+const VU_COUNT = MAX_VUS > 0 ? Math.min(MAX_VUS, USERS.length) : USERS.length
 const PEAK_MULTIPLIER = parseInt(__ENV.PEAK_MULTIPLIER || '3')
 
 const ADMIN_URL = __ENV.SIMULATOR_ADMIN_URL || 'https://uat-admin.tricogdev.net'
@@ -31,8 +33,8 @@ export const options = {
       rate:            6 * PEAK_MULTIPLIER,
       timeUnit:        '1m',
       duration:        '10m',
-      preAllocatedVUs: USERS.length,
-      maxVUs:          USERS.length,
+      preAllocatedVUs: VU_COUNT,
+      maxVUs:          VU_COUNT,
       exec:            'doctorFlow',
       startTime:       '2s',
     },

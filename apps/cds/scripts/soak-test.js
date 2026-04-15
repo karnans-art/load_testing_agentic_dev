@@ -1,16 +1,16 @@
-// CDS — Smoke Test
-// VUs = number of users in users.json — 1 VU per user, no session conflicts
-// Includes simulator pushing cases + doctor workflow
-// Run: k6 run apps/cds/scripts/smoke.js
+// CDS — Soak Test (Endurance)
+// 20 VUs for 2 hours — catches memory leaks, connection pool exhaustion, degradation.
+// Includes simulator pushing cases + doctor workflows.
+// Run: npm run soak:cds
 
 import http from 'k6/http'
 import { check, sleep } from 'k6'
 import { authHeaders, isLoggedIn } from './lib/cds-auth.js'
-import { doctorWorkflow } from './lib/cds-workflow.js'
+import { doctorWorkflow, randomSleep } from './lib/cds-workflow.js'
 
 const USERS = JSON.parse(open('../users.json')).users
 const MAX_VUS = parseInt(__ENV.MAX_VUS || '0')
-const VU_COUNT = MAX_VUS > 0 ? Math.min(MAX_VUS, USERS.length) : Math.min(USERS.length, 5)
+const VU_COUNT = MAX_VUS > 0 ? Math.min(MAX_VUS, USERS.length) : USERS.length
 
 const ADMIN_URL = __ENV.SIMULATOR_ADMIN_URL || 'https://uat-admin.tricogdev.net'
 const ADMIN_COOKIE = __ENV.TRICOG_ADMIN_COOKIE || ''
@@ -22,23 +22,23 @@ export const options = {
       executor:        'constant-arrival-rate',
       rate:            6,
       timeUnit:        '1m',
-      duration:        '30s',
+      duration:        '2h',
       preAllocatedVUs: 1,
       maxVUs:          2,
       exec:            'simulatorPush',
     },
     doctors: {
-      executor:    'per-vu-iterations',
-      vus:         VU_COUNT,
-      iterations:  100,
-      maxDuration: '30s',
+      executor:    'constant-vus',
+      vus:         Math.min(VU_COUNT, 20),
+      duration:    '2h',
       exec:        'doctorFlow',
       startTime:   '2s',
     },
   },
   thresholds: {
-    http_req_failed:   ['rate<0.10'],
-    http_req_duration: ['p(95)<5000'],
+    http_req_failed:   ['rate<0.05'],
+    http_req_duration: ['p(95)<2000', 'p(99)<5000'],
+    checks:            ['rate>0.95'],
   },
 }
 
@@ -50,17 +50,10 @@ export function simulatorPush() {
     deviceId:  'HE-BE68A686',
     file:      http.file(CSI_FILE, 'sample.csi', 'application/octet-stream'),
   }, {
-    headers: {
-      'cookie':          ADMIN_COOKIE,
-      'x-custom-header': 'foobar',
-    },
+    headers: { 'cookie': ADMIN_COOKIE, 'x-custom-header': 'foobar' },
     tags: { name: 'simulator' },
   })
-
-  const ok = check(res, { 'simulator push ok': (r) => r.status >= 200 && r.status < 300 })
-  if (!ok) {
-    console.error(`Simulator push failed: ${res.status} — ${res.body?.slice(0, 200)}`)
-  }
+  check(res, { 'simulator push ok': (r) => r.status >= 200 && r.status < 300 })
 }
 
 export function doctorFlow() {
@@ -68,13 +61,13 @@ export function doctorFlow() {
   if (!isLoggedIn()) { sleep(1); return }
 
   doctorWorkflow()
-  sleep(1)
+  randomSleep(1, 3)
 }
 
 export function setup() {
-  console.log(`Starting smoke test — ${VU_COUNT} doctor VUs + simulator`)
+  console.log(`Starting soak test — ${Math.min(VU_COUNT, 20)} VUs for 2 hours`)
 }
 
 export function teardown() {
-  console.log('Smoke test complete')
+  console.log('Soak test complete')
 }

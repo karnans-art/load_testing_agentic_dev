@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Agentic Load Testing Platform — Adoption Guide</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Inter', sans-serif;
+    color: #1a1a2e;
+    background: #fff;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 60px 48px;
+    line-height: 1.6;
+    font-size: 14px;
+  }
+  .cover { text-align: center; padding: 60px 0 48px; border-bottom: 3px solid #2563eb; margin-bottom: 48px; }
+  .cover h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+  .cover .subtitle { font-size: 16px; color: #64748b; margin-bottom: 16px; }
+  .cover .meta { font-size: 13px; color: #94a3b8; }
+  h2 { font-size: 20px; font-weight: 700; color: #1e293b; margin: 40px 0 12px; padding-bottom: 6px; border-bottom: 2px solid #e2e8f0; }
+  h3 { font-size: 16px; font-weight: 600; color: #334155; margin: 28px 0 10px; }
+  p { margin-bottom: 12px; color: #475569; }
+  code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 13px; font-family: 'JetBrains Mono', monospace; }
+  pre { background: #1e293b; color: #e2e8f0; padding: 16px 20px; border-radius: 8px; margin: 12px 0 20px; overflow-x: auto; font-size: 13px; line-height: 1.7; font-family: 'JetBrains Mono', monospace; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0 20px; font-size: 13px; }
+  thead th { background: #f1f5f9; color: #334155; font-weight: 600; text-align: left; padding: 10px 14px; border-bottom: 2px solid #cbd5e1; }
+  tbody td { padding: 10px 14px; border-bottom: 1px solid #e2e8f0; color: #475569; vertical-align: top; }
+  .box { background: #f8fafc; border-left: 4px solid #2563eb; padding: 14px 18px; margin: 12px 0 20px; border-radius: 0 8px 8px 0; }
+  .box p { margin: 0; color: #334155; font-size: 13px; }
+  .box-warn { border-left-color: #f59e0b; }
+  .toc { background: #f8fafc; padding: 20px 24px; border-radius: 8px; margin: 20px 0 32px; }
+  .toc h3 { margin: 0 0 10px; }
+  .toc ol { padding-left: 20px; color: #475569; }
+  .toc li { margin: 4px 0; }
+  .toc a { color: #2563eb; text-decoration: none; }
+  .page-break { page-break-before: always; }
+  @media print { body { padding: 36px; font-size: 12px; } }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <h1>Agentic Load Testing Platform</h1>
+  <div class="subtitle">Adoption Guide</div>
+  <div class="meta">Multi-product load testing from real production traffic</div>
+  <div class="meta" style="margin-top:8px;">Version 2.0 &mdash; April 2026</div>
+</div>
+
+<div class="toc">
+  <h3>Contents</h3>
+  <ol>
+    <li><a href="#overview">Platform Overview</a></li>
+    <li><a href="#quickstart">Quick Start (5 minutes)</a></li>
+    <li><a href="#architecture">Architecture</a></li>
+    <li><a href="#scenarios">Test Scenarios</a></li>
+    <li><a href="#provisioning">User Provisioning</a></li>
+    <li><a href="#grafana">Grafana Monitoring</a></li>
+    <li><a href="#cicd">CI/CD Integration</a></li>
+    <li><a href="#newapp">Adding a New Product</a></li>
+    <li><a href="#env">Environment Reference</a></li>
+    <li><a href="#troubleshooting">Troubleshooting</a></li>
+  </ol>
+</div>
+
+<!-- 1. OVERVIEW -->
+<h2 id="overview">1. Platform Overview</h2>
+<p>This platform simulates production traffic across multiple products using real data from WAF logs and HAR files. Each product (app) is tested independently under its own <code>apps/</code> directory. Results reveal bottlenecks across the full infrastructure.</p>
+
+<p><strong>Currently active:</strong> CDS (Clinical Decision Support) &mdash; the ECG doctor workflow.</p>
+<p><strong>Designed for:</strong> 10-15 products, each with its own test suite, sharing common infrastructure (runner, Grafana, CI/CD).</p>
+
+<table>
+  <thead><tr><th>Feature</th><th>Details</th></tr></thead>
+  <tbody>
+    <tr><td>Engine</td><td>k6 (HTTP, WebSocket, Browser)</td></tr>
+    <tr><td>Monitoring</td><td>k6 Cloud + Grafana/InfluxDB (local)</td></tr>
+    <tr><td>CI/CD</td><td>GitHub Actions</td></tr>
+    <tr><td>User provisioning</td><td>Automated: create, test, deactivate</td></tr>
+    <tr><td>Scenarios</td><td>Smoke, production, peak, stress, soak, websocket, diagnosis loop</td></tr>
+    <tr><td>Custom metrics</td><td>Per-phase timing: dashboard load, ECG viewer, WebSocket, diagnosis</td></tr>
+  </tbody>
+</table>
+
+<!-- 2. QUICK START -->
+<h2 id="quickstart">2. Quick Start</h2>
+
+<h3>Prerequisites</h3>
+<pre>node --version   # v20+
+k6 version       # v1.7+
+docker --version # for Grafana (optional)</pre>
+
+<h3>Install</h3>
+<pre>git clone &lt;repo&gt;
+cd agentic-loadtesting
+npm install
+cp .env.example .env   # fill in credentials</pre>
+
+<h3>Run your first test</h3>
+<pre># Health check (1 VU, ~5 seconds)
+npm run health:cds
+
+# Smoke test (5 VUs, 30 seconds)
+npm run smoke:cds
+
+# Smoke test with dynamic users
+npm run smoke:cds -- --setup 4
+
+# Push results to k6 Cloud
+npm run smoke:cds -- --cloud</pre>
+
+<!-- 3. ARCHITECTURE -->
+<h2 id="architecture">3. Architecture</h2>
+
+<pre>agentic-loadtesting/
+  apps/
+    cds/                         # CDS product (reference implementation)
+      scripts/
+        smoke.js                 # Smoke test
+        peak-load.js             # Peak (3x production)
+        stress-test.js           # Stress (1x-5x ramp)
+        soak-test.js             # Endurance (2 hours)
+        production-load.js       # WAF-weighted production rate
+        health-check.js          # Fast CI gate
+        websocket-test.js        # Socket.IO load test
+        full-doctor-flow.js      # Probabilistic routing
+        continuous-diagnosis.js  # Diagnosis loop
+        lib/
+          cds-auth.js            # Per-VU auth (1:1 mapping)
+          cds-workflow.js         # Doctor workflow (batch calls)
+          cds-metrics.js          # Custom k6 metrics
+          cds-websocket.js        # Socket.IO handler
+      users.json                 # Hardcoded test users (DO NOT MODIFY)
+      fixtures/sample.csi        # ECG sample file for simulator
+    admin/                       # Future: admin product
+    customer/                    # Future: customer product
+  runner/
+    run-test.js                  # Orchestrator (--setup, --cloud)
+    setup/provision-lib.js       # User creation + IMAP + cleanup
+  grafana/                       # Dashboard + InfluxDB config
+  docker-compose.yml             # Grafana + InfluxDB stack
+  .github/workflows/             # CI/CD pipeline
+  .env                           # Environment config (gitignored)</pre>
+
+<div class="box">
+  <p><strong>App isolation rule:</strong> Each app under <code>apps/</code> is completely self-contained. No imports across apps. Shared infrastructure lives in <code>runner/</code> only.</p>
+</div>
+
+<h3>Test execution flow</h3>
+<pre>npm run smoke:cds -- --setup 4 --cloud
+
+  1. Provision 4 users (API + IMAP password reset)
+  2. Write temp users.json
+  3. k6 runs smoke test (4 doctor VUs + 1 simulator VU)
+     - Simulator pushes ECG cases
+     - Doctors: login &rarr; list page &rarr; assign &rarr; diagnosis page
+  4. Deactivate dynamically created users
+  5. Restore original users.json
+  6. Results pushed to k6 Cloud</pre>
+
+<!-- 4. SCENARIOS -->
+<div class="page-break"></div>
+<h2 id="scenarios">4. Test Scenarios</h2>
+
+<table>
+  <thead><tr><th>Scenario</th><th>Command</th><th>VUs</th><th>Duration</th><th>Purpose</th></tr></thead>
+  <tbody>
+    <tr><td>Health check</td><td><code>npm run health:cds</code></td><td>1</td><td>~5s</td><td>Fast CI gate &mdash; login + 6 endpoints</td></tr>
+    <tr><td>Smoke</td><td><code>npm run smoke:cds</code></td><td>5</td><td>30s</td><td>Quick validation after changes</td></tr>
+    <tr><td>Production load</td><td><code>npm run production:cds</code></td><td>5</td><td>10m</td><td>WAF-weighted traffic at exact production rates</td></tr>
+    <tr><td>Peak (3x)</td><td><code>npm run peak:cds</code></td><td>5</td><td>10m</td><td>3x production traffic</td></tr>
+    <tr><td>Stress</td><td><code>npm run stress:cds</code></td><td>5-200</td><td>30m</td><td>Ramp 1x&rarr;5x to find breaking point</td></tr>
+    <tr><td>Soak</td><td><code>npm run soak:cds</code></td><td>20</td><td>2h</td><td>Catch memory leaks, degradation</td></tr>
+    <tr><td>WebSocket</td><td><code>npm run websocket:cds</code></td><td>5</td><td>3m</td><td>Socket.IO stress test</td></tr>
+    <tr><td>Full doctor flow</td><td><code>npm run full-flow:cds</code></td><td>5</td><td>5m</td><td>40% dashboard / 30% ECG / 15% filter / 15% multi-case</td></tr>
+    <tr><td>Continuous diagnosis</td><td><code>npm run diagnosis:cds</code></td><td>5</td><td>5m</td><td>Diagnosis loop (placeholder for POST /diagnose)</td></tr>
+  </tbody>
+</table>
+
+<p>Append <code>:cloud</code> to push results to k6 Cloud: <code>npm run smoke:cds:cloud</code></p>
+<p>Use <code>-- --setup N</code> for dynamic users: <code>npm run smoke:cds -- --setup 10</code></p>
+
+<h3>Custom metrics tracked</h3>
+<table>
+  <thead><tr><th>Metric</th><th>What it measures</th></tr></thead>
+  <tbody>
+    <tr><td><code>cds_login_duration</code></td><td>Time to authenticate</td></tr>
+    <tr><td><code>cds_dashboard_load_duration</code></td><td>Full dashboard page load (batch)</td></tr>
+    <tr><td><code>cds_task_list_duration</code></td><td>tasks/latest API response time</td></tr>
+    <tr><td><code>cds_ecg_viewer_load_duration</code></td><td>ECG viewer page load (batch)</td></tr>
+    <tr><td><code>cds_case_open_duration</code></td><td>Time to open a case for diagnosis</td></tr>
+    <tr><td><code>cds_ws_connect_duration</code></td><td>WebSocket connection time</td></tr>
+    <tr><td><code>cds_ws_ping_duration</code></td><td>WebSocket heartbeat round-trip</td></tr>
+    <tr><td><code>cds_api_success_rate</code></td><td>Percentage of successful API calls</td></tr>
+    <tr><td><code>cds_cases_processed_count</code></td><td>Total cases processed (diagnosis loop)</td></tr>
+  </tbody>
+</table>
+
+<!-- 5. PROVISIONING -->
+<h2 id="provisioning">5. User Provisioning</h2>
+
+<h3>Static users (default)</h3>
+<p>Without <code>--setup</code>, tests use the hardcoded <code>apps/cds/users.json</code>. These are permanent test accounts that must not be modified or deleted.</p>
+
+<h3>Dynamic users</h3>
+<pre>npm run smoke:cds -- --setup 10 --prefix ltkr</pre>
+<p>This creates 10 users (<code>ltkr001</code>&ndash;<code>ltkr010</code>), runs the test, and deactivates them after.</p>
+
+<table>
+  <thead><tr><th>Step</th><th>What happens</th></tr></thead>
+  <tbody>
+    <tr><td>1. Create</td><td><code>POST /api/hubdoctor</code> via Atlas Admin API (<code>CDS_ADMIN_COOKIE</code>)</td></tr>
+    <tr><td>2. Password</td><td>IMAP: batch fetch reset emails (single connection), extract tokens, set passwords</td></tr>
+    <tr><td>3. Test</td><td>k6 runs with dynamic users (temp users.json)</td></tr>
+    <tr><td>4. Cleanup</td><td><code>PUT /api/hub/toggle-status</code> deactivates only dynamically created users</td></tr>
+    <tr><td>5. Restore</td><td>Original users.json restored from backup</td></tr>
+  </tbody>
+</table>
+
+<div class="box box-warn">
+  <p><strong>Important:</strong> Only users created in the current <code>--setup</code> run are deactivated. Hardcoded users (Karnan, User3, pooja.cs, lt001, lt002) are never touched.</p>
+</div>
+
+<h3>Session collision prevention</h3>
+<p>The CDS server allows only one active session per user. Each VU gets a unique user via direct index mapping (<code>USERS[__VU - 1]</code>) with no modulo. If a VU's index exceeds the user count, it's skipped.</p>
+
+<!-- 6. GRAFANA -->
+<h2 id="grafana">6. Grafana Monitoring</h2>
+
+<h3>Start the stack</h3>
+<pre>docker compose up -d
+# Grafana: http://localhost:3000 (auto-login)
+# InfluxDB: http://localhost:8086</pre>
+
+<h3>Run tests with InfluxDB output</h3>
+<pre>k6 run --out influxdb=http://localhost:8086/k6 apps/cds/scripts/smoke.js</pre>
+
+<h3>Dashboard panels</h3>
+<table>
+  <thead><tr><th>Panel</th><th>What it shows</th></tr></thead>
+  <tbody>
+    <tr><td>Virtual Users</td><td>Active VUs over time</td></tr>
+    <tr><td>Request Rate</td><td>HTTP requests per second</td></tr>
+    <tr><td>Error Rate</td><td>Failed request % (green/yellow/red)</td></tr>
+    <tr><td>Response Time Percentiles</td><td>p50, p90, p95, p99 trends</td></tr>
+    <tr><td>Response Time by Endpoint</td><td>p95 per API endpoint</td></tr>
+    <tr><td>Dashboard Load Duration</td><td>Custom metric: full dashboard load</td></tr>
+    <tr><td>ECG Viewer Load Duration</td><td>Custom metric: ECG viewer batch</td></tr>
+    <tr><td>WebSocket Connections</td><td>Connect + ping latency</td></tr>
+    <tr><td>WebSocket Messages</td><td>Sent/received message rate</td></tr>
+    <tr><td>Checks Pass Rate</td><td>k6 assertion pass %</td></tr>
+    <tr><td>API Success Rate</td><td>Business-level success %</td></tr>
+  </tbody>
+</table>
+
+<!-- 7. CI/CD -->
+<div class="page-break"></div>
+<h2 id="cicd">7. CI/CD Integration</h2>
+
+<h3>Current setup (GitHub Actions)</h3>
+<p>On push to <code>main</code> (when <code>apps/cds/**</code> changes) or manual dispatch:</p>
+<pre>Checkout &rarr; Node.js 20 &rarr; npm install &rarr; Install k6 &rarr; Run smoke test &rarr; Push to k6 Cloud</pre>
+
+<h3>Required GitHub secrets</h3>
+<table>
+  <thead><tr><th>Secret</th><th>Purpose</th></tr></thead>
+  <tbody>
+    <tr><td><code>BASE_URL</code></td><td>Target environment URL</td></tr>
+    <tr><td><code>K6_CLOUD_TOKEN</code></td><td>k6 Cloud API token</td></tr>
+    <tr><td><code>CDS_ADMIN_COOKIE</code></td><td>Atlas Admin tlas cookie (for --setup)</td></tr>
+    <tr><td><code>TRICOG_ADMIN_COOKIE</code></td><td>Simulator admin cookie</td></tr>
+    <tr><td><code>GOOGLE_EMAIL</code></td><td>Gmail for IMAP password resets</td></tr>
+    <tr><td><code>GOOGLE_APP_PASSWORD</code></td><td>Gmail app password</td></tr>
+  </tbody>
+</table>
+
+<h3>Post-deployment flow (planned)</h3>
+<pre>CDS Deploy &rarr; Smoke test (30s gate) &rarr; Pass? &rarr; Production load (10m) &rarr; Report to k6 Cloud
+                                       &rarr; Fail? &rarr; Alert team, block promotion</pre>
+
+<!-- 8. NEW APP -->
+<h2 id="newapp">8. Adding a New Product</h2>
+
+<pre># 1. Create the directory structure
+mkdir -p apps/&lt;name&gt;/scripts/lib apps/&lt;name&gt;/fixtures
+
+# 2. Create the shared libs (copy from CDS, adapt)
+#    - apps/&lt;name&gt;/scripts/lib/&lt;name&gt;-auth.js
+#    - apps/&lt;name&gt;/scripts/lib/&lt;name&gt;-workflow.js
+#    - apps/&lt;name&gt;/scripts/lib/&lt;name&gt;-metrics.js
+
+# 3. Create test scripts
+#    - apps/&lt;name&gt;/scripts/smoke.js
+#    - apps/&lt;name&gt;/scripts/health-check.js
+#    - (more as needed)
+
+# 4. Create users.json
+#    - apps/&lt;name&gt;/users.json
+
+# 5. Add npm scripts to package.json
+#    "smoke:&lt;name&gt;": "node runner/run-test.js --app &lt;name&gt; --script smoke"
+
+# 6. Run
+npm run smoke:&lt;name&gt;</pre>
+
+<div class="box">
+  <p><strong>Convention:</strong> npm scripts follow the pattern <code>{scenario}:{app}</code>. Examples: <code>smoke:cds</code>, <code>stress:admin</code>, <code>health:customer</code>.</p>
+</div>
+
+<!-- 9. ENV REFERENCE -->
+<h2 id="env">9. Environment Reference</h2>
+
+<table>
+  <thead><tr><th>Variable</th><th>Required</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>BASE_URL</code></td><td>Yes</td><td>Target app URL (e.g., https://uat-ecg.tricogdev.net)</td></tr>
+    <tr><td><code>K6_CLOUD_TOKEN</code></td><td>For cloud</td><td>k6 Cloud API token</td></tr>
+    <tr><td><code>CDS_ADMIN_COOKIE</code></td><td>For --setup</td><td>tlas cookie from uat-ecg-atlasadmin.tricogdev.net</td></tr>
+    <tr><td><code>TRICOG_ADMIN_COOKIE</code></td><td>For simulator</td><td>Cookie from uat-admin.tricogdev.net</td></tr>
+    <tr><td><code>SIMULATOR_ADMIN_URL</code></td><td>No</td><td>Simulator API URL (default: uat-admin.tricogdev.net)</td></tr>
+    <tr><td><code>ADMIN_URL</code></td><td>For --setup</td><td>Atlas Admin URL (default: uat-ecg-atlasadmin.tricogdev.net)</td></tr>
+    <tr><td><code>ADMIN_DOMAIN</code></td><td>For --setup</td><td>Domain header (default: UatDomain3)</td></tr>
+    <tr><td><code>GOOGLE_EMAIL</code></td><td>For --setup</td><td>Gmail address for IMAP</td></tr>
+    <tr><td><code>GOOGLE_APP_PASSWORD</code></td><td>For --setup</td><td>Gmail app password</td></tr>
+  </tbody>
+</table>
+
+<!-- 10. TROUBLESHOOTING -->
+<h2 id="troubleshooting">10. Troubleshooting</h2>
+
+<table>
+  <thead><tr><th>Problem</th><th>Cause</th><th>Fix</th></tr></thead>
+  <tbody>
+    <tr><td>401 UNAUTHENTICATED on multiple endpoints</td><td>Session collision &mdash; two VUs share same user</td><td>Check VU-to-user mapping. Ensure no modulo in user index. Add more users if needed.</td></tr>
+    <tr><td>400 "Domain missing the username" on task/assign</td><td>Username not in task's assignable list</td><td>Must call <code>task/users?role=undefined</code> first and use username from response.</td></tr>
+    <tr><td>CDS_ADMIN_COOKIE error</td><td>Cookie expired or not set</td><td>Get fresh tlas cookie from browser at uat-ecg-atlasadmin.tricogdev.net. Update .env.</td></tr>
+    <tr><td>IMAP timeout / no email</td><td>Gmail rate limit or email delay</td><td>Retry. Check GOOGLE_APP_PASSWORD is valid. Reduce --setup count.</td></tr>
+    <tr><td>Simulator push fails</td><td>TRICOG_ADMIN_COOKIE expired</td><td>Get fresh cookie from uat-admin.tricogdev.net. Update .env.</td></tr>
+    <tr><td>Skipped users not usable</td><td>Users exist but password unknown</td><td>Use a new --prefix to create fresh users. Or delete old users first.</td></tr>
+    <tr><td>Grafana shows no data</td><td>InfluxDB not receiving k6 output</td><td>Run with <code>--out influxdb=http://localhost:8086/k6</code>. Check docker compose is running.</td></tr>
+  </tbody>
+</table>
+
+</body>
+</html>

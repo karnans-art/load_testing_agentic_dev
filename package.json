@@ -11,7 +11,16 @@
     "stress:cds":           "node runner/run-test.js --app cds --script stress",
     "stress:cds:cloud":     "node runner/run-test.js --app cds --script stress --cloud",
     "production:cds":       "node runner/run-test.js --app cds --script production",
-    "production:cds:cloud": "node runner/run-test.js --app cds --script production --cloud"
+    "production:cds:cloud": "node runner/run-test.js --app cds --script production --cloud",
+    "health:cds":           "node runner/run-test.js --app cds --script health-check",
+    "websocket:cds":        "node runner/run-test.js --app cds --script websocket-test",
+    "soak:cds":             "node runner/run-test.js --app cds --script soak-test",
+    "soak:cds:cloud":       "node runner/run-test.js --app cds --script soak-test --cloud",
+    "full-flow:cds":        "node runner/run-test.js --app cds --script full-doctor-flow",
+    "full-flow:cds:cloud":  "node runner/run-test.js --app cds --script full-doctor-flow --cloud",
+    "diagnosis:cds":        "node runner/run-test.js --app cds --script continuous-diagnosis",
+    "diagnosis:cds:cloud":  "node runner/run-test.js --app cds --script continuous-diagnosis --cloud",
+    "create-users:cds":     "node runner/create-users.js --app cds"
   },
   "dependencies": {
     "dotenv": "^17.4.1",

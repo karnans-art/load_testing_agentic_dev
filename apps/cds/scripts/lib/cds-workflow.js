@@ -1,15 +1,34 @@
 // CDS — Doctor Workflow
 // Full doctor flow matching cds100.js structure:
-//   List Page (grouped) → task/users → task/assign → Diagnosis Page (grouped)
+//   List Page (grouped, batch) → task/users → task/assign → Diagnosis Page (grouped)
 // All IDs derived from live API responses — zero hardcoding.
 
 import http from 'k6/http'
-import { check, group } from 'k6'
+import { check, group, sleep } from 'k6'
 import { authHeaders, getUser, getBaseUrl } from './cds-auth.js'
+import {
+  dashboardLoadDuration, taskListDuration, ecgViewerLoadDuration,
+  queueCheckDuration, apiSuccessRate, apiErrorCount,
+} from './cds-metrics.js'
+
+/**
+ * Build shift payload for report APIs (doctor/avg, day/avg).
+ */
+function buildShiftPayload() {
+  const now = new Date()
+  const start = new Date(now)
+  start.setHours(0, 0, 0, 0)
+  const end = new Date(now)
+  end.setHours(23, 59, 59, 999)
+  return JSON.stringify({
+    startTime: start.toISOString(),
+    endTime: end.toISOString(),
+  })
+}
 
 /**
  * Run the complete doctor workflow for one iteration.
- * Returns early (with logs) if no tasks available.
+ * Returns early if no tasks available.
  */
 export function doctorWorkflow() {
   let headers = authHeaders()
@@ -20,6 +39,9 @@ export function doctorWorkflow() {
   // ── List Page ──────────────────────────────────────────────
   let tasks = []
   group('List Page', () => {
+    const dashStart = Date.now()
+
+    // Anchor call — tasks/latest (sequential, needed for 401 retry)
     let tasksRes = http.post(`${BASE_URL}/api/v2/tasks/latest`, JSON.stringify({
       filter: { doctorName: user.doctorName, pageNo: 1, perPage: 25, stage: 'ASSIGNED_DIAGNOSED', taskTypes: 'RESTING' },
       sortBy: { datetime: { enable: false }, timeread: { enable: true, order: 'DESC' }, assignedAt: { enable: true, order: 'DESC' } },
@@ -32,25 +54,42 @@ export function doctorWorkflow() {
       }), { headers, tags: { name: 'tasks/latest' } })
     }
     check(tasksRes, { 'tasks/latest ok': (r) => r.status === 200 })
+    taskListDuration.add(Date.now() - dashStart)
 
-    const countRes = http.post(`${BASE_URL}/api/v2/tasks/count`, '{}', { headers, tags: { name: 'tasks/count' } })
-    check(countRes, { 'tasks/count ok': (r) => r.status === 200 })
+    // Dashboard batch — parallel calls (mimics real browser behavior)
+    const shiftPayload = buildShiftPayload()
+    const batchRes = http.batch([
+      ['POST', `${BASE_URL}/api/v2/tasks/count`, '{}', { headers, tags: { name: 'tasks/count' } }],
+      ['POST', `${BASE_URL}/api/v2/tasks/v2`, JSON.stringify({
+        filter: { pageNo: 1, perPage: 10, startDate: '', endDate: '', caseId: '', patientId: '', taskTypes: 'RESTING', centerName: '', critical: null, state: '', stage: null, view: 'ALL' },
+        sortBy: { datetime: { enable: true, order: 'DESC' } },
+      }), { headers, tags: { name: 'tasks/v2' } }],
+      ['GET', `${BASE_URL}/api/v2/user`, null, { headers, tags: { name: 'user' } }],
+      ['GET', `${BASE_URL}/api/v2/config`, null, { headers, tags: { name: 'config' } }],
+      ['GET', `${BASE_URL}/api/v2/config/version/viewer`, null, { headers, tags: { name: 'config/version/viewer' } }],
+      ['GET', `${BASE_URL}/api/v2/language`, null, { headers, tags: { name: 'language' } }],
+      ['GET', `${BASE_URL}/api/v2/report/total/eta`, null, { headers, tags: { name: 'report/total/eta' } }],
+      ['GET', `${BASE_URL}/api/v2/report/doctor/active`, null, { headers, tags: { name: 'report/doctor/active' } }],
+      ['POST', `${BASE_URL}/api/v2/report/doctor/avg`, shiftPayload, { headers, tags: { name: 'report/doctor/avg' } }],
+      ['POST', `${BASE_URL}/api/v2/report/day/avg`, shiftPayload, { headers, tags: { name: 'report/day/avg' } }],
+      ['GET', `${BASE_URL}/api/v2/getQueueLength`, null, { headers, tags: { name: 'getQueueLength' } }],
+    ])
 
-    const tasksV2Res = http.post(`${BASE_URL}/api/v2/tasks/v2`, JSON.stringify({
-      filter: { pageNo: 1, perPage: 10, startDate: '', endDate: '', caseId: '', patientId: '', taskTypes: 'RESTING', centerName: '', critical: null, state: '', stage: null, view: 'ALL' },
-      sortBy: { datetime: { enable: true, order: 'DESC' } },
-    }), { headers, tags: { name: 'tasks/v2' } })
-    check(tasksV2Res, { 'tasks/v2 ok': (r) => r.status === 200 })
+    // Check each batch response individually
+    const dashNames = ['tasks/count', 'tasks/v2', 'user', 'config', 'config/version/viewer', 'language', 'report/total/eta', 'report/doctor/active', 'report/doctor/avg', 'report/day/avg', 'getQueueLength']
+    batchRes.forEach((r, i) => {
+      const name = dashNames[i]
+      check(r, { [`${name} ok`]: (res) => res.status === 200 })
+      const ok = r.status >= 200 && r.status < 300
+      apiSuccessRate.add(ok ? 1 : 0)
+      if (!ok) apiErrorCount.add(1)
+    })
 
-    http.get(`${BASE_URL}/api/v2/user`, { headers, tags: { name: 'user' } })
-    http.get(`${BASE_URL}/api/v2/config`, { headers, tags: { name: 'config' } })
-    http.get(`${BASE_URL}/api/v2/config/version/viewer`, { headers, tags: { name: 'config/version/viewer' } })
-    http.get(`${BASE_URL}/api/v2/language`, { headers, tags: { name: 'language' } })
-    http.get(`${BASE_URL}/api/v2/report/total/eta`, { headers, tags: { name: 'report/total/eta' } })
-    http.get(`${BASE_URL}/api/v2/report/doctor/active`, { headers, tags: { name: 'report/doctor/active' } })
-    http.post(`${BASE_URL}/api/v2/report/doctor/avg`, '{}', { headers, tags: { name: 'report/doctor/avg' } })
-    http.post(`${BASE_URL}/api/v2/report/day/avg`, '{}', { headers, tags: { name: 'report/day/avg' } })
-    http.get(`${BASE_URL}/api/v2/getQueueLength`, { headers, tags: { name: 'getQueueLength' } })
+    dashboardLoadDuration.add(Date.now() - dashStart)
+
+    // Queue check metric
+    const queueRes = batchRes[batchRes.length - 1]
+    if (queueRes) queueCheckDuration.add(queueRes.timings.duration)
 
     try {
       const body = tasksRes.json()
@@ -76,23 +115,37 @@ export function doctorWorkflow() {
     }
 
     group('Diagnosis Page', () => {
+      const viewerStart = Date.now()
+
       const nextEcgRes = http.get(`${BASE_URL}/api/v2/nextEcg?id=${task.taskId}&assignedAt=${task.assignedAt}`, { headers, tags: { name: 'nextEcg' } })
       check(nextEcgRes, { 'nextEcg ok': (r) => r.status === 200 })
 
-      const algoRes = http.get(`${BASE_URL}/api/v2/tasks/${task.taskId}/algo`, { headers, tags: { name: 'tasks/algo' } })
-      check(algoRes, { 'tasks/algo ok': (r) => r.status === 200 })
+      // Viewer batch — parallel calls for case data
+      const viewerBatch = http.batch([
+        ['GET', `${BASE_URL}/api/v2/tasks/${task.taskId}/algo`, null, { headers, tags: { name: 'tasks/algo' } }],
+        ['GET', `${BASE_URL}/api/v2/ecgData/${task.taskId}`, null, { headers, tags: { name: 'ecgData' } }],
+        ['GET', `${BASE_URL}/api/v2/patient/${task.taskId}/`, null, { headers, tags: { name: 'patient' } }],
+        ['GET', `${BASE_URL}/api/v2/tasks/${task.taskId}/history/count`, null, { headers, tags: { name: 'tasks/history/count' } }],
+        ['GET', `${BASE_URL}/api/v2/case/${task.caseId}/comments/history`, null, { headers, tags: { name: 'case/comments/history' } }],
+      ])
 
-      const ecgDataRes = http.get(`${BASE_URL}/api/v2/ecgData/${task.taskId}`, { headers, tags: { name: 'ecgData' } })
-      check(ecgDataRes, { 'ecgData ok': (r) => r.status === 200 })
+      const viewerNames = ['tasks/algo', 'ecgData', 'patient', 'tasks/history/count', 'case/comments/history']
+      viewerBatch.forEach((r, i) => {
+        const name = viewerNames[i]
+        check(r, { [`${name} ok`]: (res) => res.status === 200 })
+        const ok = r.status >= 200 && r.status < 300
+        apiSuccessRate.add(ok ? 1 : 0)
+        if (!ok) apiErrorCount.add(1)
+      })
 
-      const patientRes = http.get(`${BASE_URL}/api/v2/patient/${task.taskId}/`, { headers, tags: { name: 'patient' } })
-      check(patientRes, { 'patient ok': (r) => r.status === 200 })
-
-      const historyRes = http.get(`${BASE_URL}/api/v2/tasks/${task.taskId}/history/count`, { headers, tags: { name: 'tasks/history/count' } })
-      check(historyRes, { 'tasks/history/count ok': (r) => r.status === 200 })
-
-      const commentsRes = http.get(`${BASE_URL}/api/v2/case/${task.caseId}/comments/history`, { headers, tags: { name: 'case/comments/history' } })
-      check(commentsRes, { 'case/comments/history ok': (r) => r.status === 200 })
+      ecgViewerLoadDuration.add(Date.now() - viewerStart)
     })
   }
+}
+
+/**
+ * Simulated think time — random sleep between actions.
+ */
+export function randomSleep(min = 1, max = 5) {
+  sleep(min + Math.random() * (max - min))
 }
