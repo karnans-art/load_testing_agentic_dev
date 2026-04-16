@@ -5,297 +5,175 @@
 
 ---
 
-## Phase 1: Platform Scaffold ✅
+## Platform Architecture ✅
 
-- [x] Project structure: `apps/<name>/`, `runner/`, `.specify/`, `.vscode/`
-- [x] `runner/run.js` — master orchestrator (`--app`, `--step`, `--mode`)
-- [x] `runner/ingest/waf-parser.js` — multi-sheet Excel, domain filter, bot filtering
-- [x] `runner/ingest/har-parser.js` — HAR merge, graceful fallback when empty
-- [x] `runner/generate/k6-generator.js` — constant-arrival-rate scenario generator
-- [x] `.env` — base config (BASE_URL, TEST_USERNAME, TEST_PASSWORD, TEST_DOMAIN)
-- [x] `.vscode/tasks.json` — VS Code task palette for all k6 scripts
-- [x] `package.json` — npm run scripts (smoke:cds, normal:cds, peak:cds, etc.)
+- [x] Multi-app structure: `apps/<name>/` — each app self-contained
+- [x] `runner/run-test.js` — orchestrator (`--app`, `--script`, `--setup N`, `--cloud`)
+- [x] `runner/create-users.js` — standalone user creation (batch IMAP, random passwords, append mode)
+- [x] `.env` — config (BASE_URL, cookies, k6 Cloud token, Gmail credentials)
+- [x] `package.json` — npm scripts: `{scenario}:{app}` pattern
 - [x] `CLAUDE.md` — constitution: production-rate simulation, app isolation, auth rules
+- [x] `docker-compose.yml` — Grafana + InfluxDB monitoring stack
+- [x] `grafana/` — pre-provisioned dashboard with 12 panels + endpoint dropdown
+- [x] `.github/workflows/smoke-test.yml` — CI/CD: smoke test on push to main
 
 ---
 
-## Phase 2: CDS App (ecg.tricog.com) 🔵 In Progress
+## CDS App (ecg.tricog.com) ✅
 
 ### Auth & Session
-- [x] Login endpoint: `POST /api/v2/login` with domainId, application, appVersion, custom headers
-- [x] `updateActive {isActive:1}` — called once per VU after login (required for tasks/latest)
-- [x] Per-VU token model — login once per VU, auto-refresh on 401 (not per-iteration)
-- [x] `apps/cds/users.json` — user credentials store (add more users here for 1000-user scale)
-- [x] Token passed as `token` header (not `Authorization: Bearer`)
+- [x] Login: `POST /api/v2/login` with domainId, application, appVersion
+- [x] `updateActive {isActive:1}` — marks doctor online
+- [x] Per-VU token model — login once per VU, 401 auto-refresh
+- [x] 1:1 VU-to-user mapping — direct index, no modulo, bounds check
+- [x] Zero session collision — guaranteed, tested at 100 VUs
+- [x] `token` header (not `Authorization: Bearer`)
 
-### Smoke Test (`apps/cds/scripts/smoke.js`)
-- [x] Login + updateActive wired correctly
-- [x] `tasks/latest` — with filter payload (stage, taskTypes, doctorName)
-- [x] `tasks/count` — POST `{}`
-- [x] `tasks/v2` — with full filter + sortBy payload
+### User Provisioning
+- [x] 100 users created in `LoadTest3` domain — all verified working
+- [x] `npm run create-users:cds` — standalone creation script
+- [x] Batch IMAP (single connection for all reset tokens)
+- [x] Random passwords per user (crypto.randomBytes)
+- [x] Append mode — never overwrites existing users.json
+- [x] `--setup N` — limits VUs to first N users from users.json
+- [x] No provisioning during test runs — users pre-created separately
+
+### Shared Libraries (`apps/cds/scripts/lib/`)
+- [x] `cds-auth.js` — per-VU login, 1:1 mapping, bounds check, auto-refresh
+- [x] `cds-workflow.js` — full doctor flow with `http.batch()`, shift payloads, custom metrics
+- [x] `cds-metrics.js` — 18 custom metrics (dashboard, viewer, WebSocket, diagnosis, API health)
+- [x] `cds-websocket.js` — Socket.IO handler (handshake, heartbeat, activity events, reconnect)
+
+### Test Scenarios (9 total)
+- [x] **Health check** (`npm run health:cds`) — 1 VU, ~5s, fast CI gate
+- [x] **Smoke** (`npm run smoke:cds`) — 5 VUs default, 30s, quick validation
+- [x] **Production load** (`npm run production:cds`) — WAF-weighted 109 req/min exact rate
+- [x] **Peak 3x** (`npm run peak:cds`) — 3x production traffic
+- [x] **Stress** (`npm run stress:cds`) — dynamic ramp (1x → 5x → 10x → 50% → max), scales with user count
+- [x] **Soak** (`npm run soak:cds`) — 20 VUs, 2 hours endurance
+- [x] **WebSocket** (`npm run websocket:cds`) — Socket.IO load test, verified working
+- [x] **Full doctor flow** (`npm run full-flow:cds`) — probabilistic: 40% dashboard, 30% ECG, 15% filter, 15% multi-case + WebSocket
+- [x] **Continuous diagnosis** (`npm run diagnosis:cds`) — case processing loop + WebSocket (POST /diagnose placeholder)
+
+### Endpoints Tested (22 with individual checks)
+
+**List Page (14):**
+- [x] `POST /api/v2/login`
+- [x] `POST /api/v2/updateActive`
+- [x] `POST /api/v2/tasks/latest`
+- [x] `POST /api/v2/tasks/count`
+- [x] `POST /api/v2/tasks/v2`
 - [x] `GET /api/v2/user`
 - [x] `GET /api/v2/config`
+- [x] `GET /api/v2/config/version/viewer`
 - [x] `GET /api/v2/language`
 - [x] `GET /api/v2/report/total/eta`
 - [x] `GET /api/v2/report/doctor/active`
-- [x] Refactored: grouped into List Page + Diagnosis Page (loops all tasks)
-- [x] Added setup() / teardown()
-- [ ] `POST /api/v2/doctor-stat/` — **BLOCKED: need correct curl from DevTools** ⚠️
-- [ ] Add simulator push (like cds100.js) for task injection
+- [x] `POST /api/v2/report/doctor/avg` (with shift payload)
+- [x] `POST /api/v2/report/day/avg` (with shift payload)
+- [x] `GET /api/v2/getQueueLength`
 
-### Shared Workflow Lib (`apps/cds/scripts/lib/`)
-- [x] `cds-auth.js` — per-VU login, updateActive, profile fetch, auto-refresh on 401
-- [x] `cds-workflow.js` — full doctor flow: tasks/latest → task/assign → per-task → standalone (22 API calls)
-- [x] All 4 scripts (smoke, normal, peak, stress) import from lib — zero duplication
+**Per Task (8):**
+- [x] `GET /api/v2/task/{id}/users?role=undefined`
+- [x] `POST /api/v2/task/assign` (username from task/users response)
+- [x] `GET /api/v2/nextEcg`
+- [x] `GET /api/v2/tasks/{id}/algo`
+- [x] `GET /api/v2/ecgData/{id}`
+- [x] `GET /api/v2/patient/{id}`
+- [x] `GET /api/v2/tasks/{id}/history/count`
+- [x] `GET /api/v2/case/{id}/comments/history`
 
-### Normal Load Test (`apps/cds/scripts/normal-load.js`)
-- [x] Workflow-based: constant-arrival-rate at 12 workflows/min (production rate from WAF)
-- [x] Uses shared lib — full doctor workflow per iteration
+**Simulator:**
+- [x] `POST /api/case/simulator` (ECG case injection)
 
-### Peak Load (`apps/cds/scripts/peak-load.js`)
-- [x] 3x production rate (36 workflows/min), configurable via PEAK_MULTIPLIER env var
-- [x] Uses shared lib
+**WebSocket:**
+- [x] `WSS /api/v2/socket.io/` (Socket.IO: handshake, heartbeat, activity events)
 
-### Stress Test (`apps/cds/scripts/stress-test.js`)
-- [x] Ramping: 1x → 2x → 3x → 4x → 5x → recovery (30 min total)
-- [x] maxVUs: 200, relaxed thresholds (stress test pushes limits)
-- [x] Uses shared lib
+### Verified Working
+- [x] Smoke test — 100% pass, all 22 endpoint checks
+- [x] Health check — 100% pass, 1 VU, ~5s
+- [x] WebSocket test — 375 sessions, msgs flowing, p95 connect 230ms
+- [x] Full doctor flow — 100% pass, probabilistic routing + WebSocket
+- [x] User creation — 100 users in LoadTest3, all login verified
+- [x] Simulator push — working with fresh TRICOG_ADMIN_COOKIE
 
-### Production Load Test (`apps/cds/scripts/production-load.js`)
-- [x] 19 endpoints at exact WAF production rates (109 req/min total)
-- [x] Weighted random endpoint selection — single scenario, VUs = user count
-- [x] Proactive token refresh at 20s (before ~27s server expiry)
-- [x] Session conflict fix — 1 user = 1 VU, no cross-VU invalidation
-- [ ] Validate full 10-min run — all 19 endpoints passing <5% failure
-
-### Standalone Test (`tests/cds100.js`) — Spec: `specs/cds100-test-spec.md`
-- [x] Per-VU login (moved from setup to default — fixes multi-VU session conflicts)
-- [x] List Page group: 12 standalone API calls
-- [x] Diagnosis Page group: loops through ALL tasks (6 calls per task)
-- [x] Admin simulator push in setup() — `POST /api/case/simulator` injects tasks before test
-- [x] Abort on simulator failure — VUs skip if no tasks can be pushed
-- [x] `ADMIN_COOKIE` as env var — user pastes fresh cookie before each run
-- [x] `.csi` ECG file stored at `apps/cds/fixtures/sample.csi`
-
-### Scale to N Users (VUs = Users)
-- [x] Dynamic VU scaling — all scripts auto-set VUs = `users.json` user count
-- [x] Confirmed: 3 users / 3 VUs → 0% failure | 10 VUs / 3 users → 51% failure (session conflicts)
-- [ ] Add 10+ test user credentials to `apps/cds/users.json`
-- [ ] Verify server supports N concurrent sessions
-- [ ] Switch to `k6 cloud` for production-scale run
-
-### Test User Provisioning — Automated Setup Script
-
-**Approach:** Playwright (Google Sign-In) → Script (API calls) → Gmail API (password reset) → users.json
-
-#### Step 1: Playwright — Google Sign-In
-- Open `https://uat-ecg-atlasadmin.tricogdev.net/login`
-- Complete Google Sign-In flow
-- Extract `tlas` session cookie from browser context
-- Close browser — no browser needed after this
-
-#### Step 2: Script — Create N Users via Admin API
-- **Endpoint:** `POST https://uat-ecg-atlasadmin.tricogdev.net/api/hubdoctor`
-- **Auth:** Cookie `tlas=<session>` + Header `domain: UatDomain3`
-- **Content-Type:** `multipart/form-data`
-
-**⚠️ CRITICAL RULE: username MUST match the email alias**
-```
-Email:    karnan.s+lt001@tricog.com  →  userName: lt001
-Email:    karnan.s+lt002@tricog.com  →  userName: lt002
-Email:    karnan.s+lt150@tricog.com  →  userName: lt150
-```
-The `+alias` part of the email = the `userName`. They MUST be identical.
-
-**Dynamic body fields per user (N = 001, 002, ... 300):**
-| Field | Pattern | Example (N=001) |
-|-------|---------|-----------------|
-| `userName` | `lt{N}` | `lt001` |
-| `fullName` | `LoadTest Doctor {N}` | `LoadTest Doctor 001` |
-| `email` | `karnan.s+lt{N}@tricog.com` | `karnan.s+lt001@tricog.com` |
-| `phoneNumber` | `90489{N padded to 5}` | `9048900001` |
-| `registrationNumber` | `LT{N padded}` | `LT00001` |
-
-**Static body fields (same for all users):**
-| Field | Value |
-|-------|-------|
-| `role` | `DOCTOR` |
-| `qualifications` | `mbbs` |
-| `designation` | `doctor` |
-| `noSignature` | `0` |
-| `signatureId` | (empty) |
-| `timeZone` | `Asia/Kolkata` |
-| `privileges` | `{"viewCase":"ALL","diagnosisType":"TEXT","assignment":"ALL","assignmentNotification":0,"assignmentRemainders":{"hours":[],"enabled":0},"platformAccess":{"web":1,"mobile":1}}` |
-| `userActionReason` | `Load testing user provisioning` |
-
-#### Step 3: Gmail API — Read Password Reset Emails
-- All emails land in `karnan.s@tricog.com` (Gmail `+` alias)
-- Use Gmail API to search: `to:karnan.s+lt001@tricog.com`
-- Extract the reset link/token from each email body
-- Token is DB-generated, cannot be predicted — MUST read from email
-
-#### Step 4: Script — Set Password via Reset API
-- **Endpoint:** `POST https://uat-ecg.tricogdev.net/api/v2/password/update`
-- **Content-Type:** `application/json`
-- **Auth:** None needed — the reset token IS the auth
-- **Body:** `{ "password": "tricog123", "token": "<token-from-email>" }`
-- **Reset link format:** `https://uat-ecg.tricogdev.net/password/new?token=<uuid>`
-- Extract the UUID token from the reset link in the email body
-- Set same password for all load test users (`tricog123`)
-
-#### Step 5: Write users.json
-- Script writes all created users to `apps/cds/users.json`
-- Load tests auto-scale VUs to match user count
-
-#### Complete Automated Flow
-```
-Playwright: Google Sign-In → get tlas cookie
-    ↓
-Loop N times:
-    POST /api/hubdoctor (tlas cookie) → create user lt001..lt300
-    ↓
-    Gmail API → search "to:karnan.s+lt{N}@tricog.com"
-    ↓
-    Extract reset token UUID from email body
-    ↓
-    POST /api/v2/password/update { password: "tricog123", token: "<uuid>" }
-    ↓
-    Append { domainId: "Uatdomain3", username: "lt{N}", password: "tricog123" } to users.json
-    ↓
-Done → k6 load tests auto-scale VUs = N users
-```
-
-#### Pending Items (from Karnan)
-- [ ] Google account credentials for Playwright Sign-In to admin portal
-- [ ] Google OAuth consent / app password for Gmail API access (to read reset emails)
-- [ ] Confirm: is `karnan.s@tricog.com` the same account for both admin Sign-In and receiving reset emails?
+### Custom Metrics
+- [x] `cds_login_duration` — auth time
+- [x] `cds_dashboard_load_duration` — full dashboard batch load
+- [x] `cds_task_list_duration` — tasks/latest response time
+- [x] `cds_ecg_viewer_load_duration` — viewer batch load
+- [x] `cds_case_open_duration` — time to open a case
+- [x] `cds_queue_check_duration` — queue length check
+- [x] `cds_ws_connect_duration` — WebSocket connect time
+- [x] `cds_ws_session_duration` — WebSocket session length
+- [x] `cds_ws_ping_duration` — heartbeat round-trip
+- [x] `cds_api_success_rate` — business-level success %
+- [x] `cds_api_error_count` — error counter
+- [x] `cds_cases_processed_count` — diagnosis loop counter
 
 ---
 
-## Phase 3: Admin App (admin.tricog.com) ⏳ Pending
+## Monitoring ✅
 
-> **Blocked until**: user provides WAF logs for admin domain + HAR file + login curl
-
-- [ ] Scaffold `apps/admin/` directory
-- [ ] `apps/admin/users.json`
-- [ ] Determine admin login flow (different from CDS?)
-- [ ] Smoke test
-- [ ] Normal / Peak / Stress scripts
+- [x] k6 Cloud — `--cloud` flag pushes results
+- [x] Docker Compose — InfluxDB 1.8 + Grafana stack
+- [x] Grafana dashboard — 12 panels (VUs, req/s, error rate, p50/p90/p95/p99, per-endpoint, dashboard load, viewer load, cases processed, WebSocket connect/ping/messages, checks pass rate, API success rate)
+- [ ] Grafana verified with live data — needs `docker compose up` + test run with `--out influxdb`
 
 ---
 
-## Phase 4: Customer App (customer.tricog.com) ⏳ Pending
+## CI/CD
 
-> **Blocked until**: user provides WAF logs for customer domain + HAR file + login curl
-
-- [ ] Scaffold `apps/customer/` directory
-- [ ] `apps/customer/users.json`
-- [ ] Smoke test
-- [ ] Normal / Peak / Stress scripts
+- [x] GitHub Actions — smoke test on push to main
+- [ ] Health check as first CI gate
+- [ ] Post-deployment trigger from CDS deploy pipeline
+- [ ] Slack/Teams notification on failure
 
 ---
 
-## Phase 5: k6 Cloud + Datadog Integration ⏳ Next
+## Documentation
 
-### Strategy
-Two output channels from every load test run:
-- **k6 Cloud** (`--out cloud`) → load test dashboards, historical comparison, team-shareable links
-- **Datadog** (`--out statsd`) → correlate load metrics with existing infra monitoring (CPU, memory, APM traces)
+- [x] `specs/project-comparison.md` — gap analysis vs loadtest-cds100
+- [x] `specs/cds-loadtest-comparison.html` — presentation-ready comparison
+- [x] `docs/adoption-guide.html` — platform adoption guide (quick start, architecture, scenarios, provisioning, Grafana, CI/CD, troubleshooting)
 
-### k6 Cloud Setup
-- [ ] Sign up at app.k6.io → get API token
-- [ ] Add `K6_CLOUD_TOKEN` to `.env`
-- [ ] Add `cloud` options block to all scripts (projectID, name, tags)
-- [ ] Update npm scripts: `cloud:cds` → `k6 cloud apps/cds/scripts/production-load.js`
-- [ ] Validate dashboards: per-endpoint latency, check pass rates, VU timeline
+---
 
-### Datadog Integration
-- [ ] Get `DD_AGENT_HOST` address (existing DD agent in UAT — likely localhost or internal IP)
-- [ ] Enable StatsD receiver on DD agent (`dogstatsd_port: 8125` in datadog.yaml)
-- [ ] Add `--out statsd` to k6 run commands with `K6_STATSD_ADDR=<DD_AGENT_HOST>:8125`
-- [ ] Verify k6 metrics appear in Datadog: `k6.http_req_duration`, `k6.http_reqs`, `k6.checks`
-- [ ] Build Datadog dashboard: k6 load metrics alongside existing CPU/memory/APM traces
-- [ ] Set Datadog monitors: alert if p95 > threshold during load test window
+## Pending / Known Gaps
 
-### Dual Output npm Scripts
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| 1 | `POST /api/v2/diagnose` | `[!]` Blocked | Need curl from DevTools. Placeholder in continuous-diagnosis.js |
+| 2 | LoadTest3 domain report APIs | `[~]` Partial | Some report endpoints return errors — domain config may need update |
+| 3 | IMAP dependency for user creation | `[x]` Required | UAT doesn't support default passwords — IMAP flow is necessary |
+| 4 | Average load test (ramp→hold→ramp down) | `[ ]` Not built | Classic load profile missing |
+| 5 | Spike test (0→max in 30s) | `[ ]` Not built | Sudden burst test missing |
+| 6 | Breakpoint test (ramp until death) | `[ ]` Not built | Find absolute max capacity |
+| 7 | Browser tests (Chromium) | `[ ]` Not built | Real DOM + Web Vitals |
+| 8 | Response body validation | `[ ]` Not built | Only check status codes, not content |
+
+---
+
+## How to Run
+
+```bash
+# Quick validation
+npm run health:cds
+npm run smoke:cds
+
+# With specific user count
+npm run smoke:cds -- --setup 50
+npm run stress:cds -- --setup 100 --cloud
+
+# All scenarios
+npm run production:cds          # WAF-weighted normal traffic
+npm run peak:cds                # 3x production
+npm run stress:cds              # ramp to breaking point
+npm run soak:cds                # 2 hour endurance
+npm run websocket:cds           # Socket.IO stress
+npm run full-flow:cds           # realistic mixed behavior
+npm run diagnosis:cds           # case processing loop
+
+# User creation (one-time, separate from tests)
+npm run create-users:cds -- --count 100 --domain LoadTest3 --prefix lt3
 ```
-smoke:cds       → k6 run (local only — fast validation)
-production:cds  → k6 run --out cloud --out statsd (both channels)
-```
-
----
-
-## Phase 6: CI/CD Post-Deployment Gate ⏳ Future
-
-### Trigger Flow
-```
-CDS Deploy (CI/CD) → Post-deploy hook → Smoke test → Pass? → Production load test → Report
-                                                    → Fail? → Alert team, block promotion
-```
-
-### Prerequisites
-- [ ] k6 installed on CI runner (or use k6 Cloud API for remote execution)
-- [ ] CI runner has network access to UAT/staging environment
-- [ ] `K6_CLOUD_TOKEN`, `DD_AGENT_HOST`, test credentials available as CI secrets
-- [ ] `users.json` accessible to CI runner (or stored as CI artifact)
-
-### Pipeline Steps (GitHub Actions / GitLab CI / Jenkins)
-
-#### Step 1: Post-Deploy Smoke (fast gate — ~30s)
-- Trigger: after CDS deployment completes
-- Run: `k6 run apps/cds/scripts/smoke.js` (1 VU, 22 checks)
-- Gate: ALL checks pass, 0% failure → proceed to step 2
-- Fail action: alert Slack/Teams, mark deployment as degraded
-
-#### Step 2: Post-Deploy Production Load (full validation — ~10min)
-- Trigger: only if smoke passes
-- Run: `k6 run --out cloud apps/cds/scripts/production-load.js`
-- Gate: `http_req_failed < 5%`, `p95 < 3000ms`
-- Fail action: alert team with k6 Cloud dashboard link, do NOT auto-rollback (manual decision)
-
-#### Step 3: Report
-- k6 Cloud dashboard link posted to Slack/Teams channel
-- Datadog dashboard shows infra impact of deployment
-- Historical comparison: this deploy vs previous deploy
-
-### CI Configuration Needed
-- [ ] CI pipeline config file (GitHub Actions `.yml` / GitLab `.gitlab-ci.yml` / Jenkinsfile)
-- [ ] CI secrets: `K6_CLOUD_TOKEN`, `BASE_URL`, `TEST_USERNAME`, `TEST_PASSWORD`, `TEST_DOMAIN`
-- [ ] Slack/Teams webhook for notifications
-- [ ] Determine trigger mechanism: webhook from deploy pipeline, or scheduled cron
-- [ ] Decide: same repo or separate repo for CI config?
-
-### Future Enhancements
-- [ ] Scheduled nightly baseline runs (cron → production-load → compare with previous night)
-- [ ] Pre-deployment gate: run load test on staging BEFORE promoting to production
-- [ ] Auto-rollback integration (optional, requires high confidence in thresholds)
-- [ ] Multi-environment support: staging vs production base URLs
-
----
-
-## Known Issues / Decisions
-
-| # | Issue | Status | Notes |
-|---|-------|--------|-------|
-| 1 | CDS session expires in ~27s | ✅ Fixed | Per-VU login with 401 auto-refresh |
-| 2 | HAR file empty | ✅ Known | uat-ecg.tricogdev.net.har only has 2 ipv4.icanhazip.com GETs — no app traffic. Using WAF data. |
-| 3 | `doctor-stat` | ✅ Resolved | Backend-to-backend call — excluded from doctor workflow, added to SYSTEM_INTERNAL_URIS |
-| 4 | Generator uses `Authorization: Bearer` | ✅ Fixed | Now uses `appConfig.tokenHeader` — CDS emits `'token': data.token` |
-| 5 | Generator login body missing domainId | ✅ Fixed | Now uses `appConfig.loginBody` with env-var substitution |
-| 6 | System endpoints in WAF inflating coverage gap | ✅ Fixed | 8 backend-to-backend URIs now excluded via `SYSTEM_INTERNAL_URIS` in waf-parser |
-| 7 | normal-load rate was 2.3x production | ✅ Fixed | Corrected from 12 to 6 workflows/min (103 hits/min ÷ 19 calls/workflow) |
-| 8 | API call count comment wrong (said 22) | ✅ Fixed | Actual: 19 calls per workflow iteration |
-| 9 | production-load 50% failure rate | ✅ Fixed | 46 VUs × 1 user = session cascade. Redesigned: 1 scenario, VUs = user count, weighted endpoint selection |
-| 10 | check() inside withAuth double-counting | ✅ Fixed | Moved check() outside withAuth — only checks final (retried) result |
-
----
-
-## Next Actions (Priority Order)
-
-1. **Me** → Validate production-load.js — run full 10-min, confirm all 19 endpoints pass
-2. **You** → Provide `K6_CLOUD_TOKEN` (sign up at app.k6.io → Settings → API token)
-3. **You** → Provide `DD_AGENT_HOST` (IP/hostname of existing Datadog agent in UAT)
-4. **Me** → Wire up dual output: `--out cloud --out statsd` in npm scripts
-5. **You** → Provide CI/CD platform details (GitHub Actions / GitLab CI / Jenkins) for post-deploy gate
-6. **You** → Provide 1000 test user list when ready for scale testing
-7. **You** → Provide admin + customer WAF/HAR when ready to add those apps

@@ -96,7 +96,7 @@ function dashboardReview(BASE_URL, h, user) {
       endTime: new Date(new Date().setHours(23,59,59,999)).toISOString(),
     })
 
-    http.batch([
+    const dashBatch = http.batch([
       ['GET', `${BASE_URL}/api/v2/config`, null, { headers: h, tags: { name: 'config' } }],
       ['GET', `${BASE_URL}/api/v2/language`, null, { headers: h, tags: { name: 'language' } }],
       ['GET', `${BASE_URL}/api/v2/config/version/viewer`, null, { headers: h, tags: { name: 'config/version/viewer' } }],
@@ -107,6 +107,8 @@ function dashboardReview(BASE_URL, h, user) {
       ['POST', `${BASE_URL}/api/v2/report/doctor/avg`, shiftPayload, { headers: h, tags: { name: 'report/doctor/avg' } }],
       ['POST', `${BASE_URL}/api/v2/report/day/avg`, shiftPayload, { headers: h, tags: { name: 'report/day/avg' } }],
     ])
+    const dashNames = ['config', 'language', 'config/version/viewer', 'user', 'getQueueLength', 'report/doctor/active', 'report/total/eta', 'report/doctor/avg', 'report/day/avg']
+    dashBatch.forEach((r, i) => check(r, { [`${dashNames[i]} ok`]: (res) => res.status === 200 }))
 
     dashboardLoadDuration.add(Date.now() - start)
 
@@ -126,6 +128,7 @@ function ecgCaseReview(BASE_URL, h, user) {
       filter: { doctorName: user.doctorName, pageNo: 1, perPage: 25, stage: 'ASSIGNED_DIAGNOSED', taskTypes: 'RESTING' },
       sortBy: { datetime: { enable: false }, timeread: { enable: true, order: 'DESC' }, assignedAt: { enable: true, order: 'DESC' } },
     }), { headers: h, tags: { name: 'tasks/latest' } })
+    check(tasksRes, { 'tasks/latest ok': (r) => r.status === 200 })
     taskListDuration.add(Date.now() - listStart)
 
     let task = null
@@ -139,7 +142,7 @@ function ecgCaseReview(BASE_URL, h, user) {
 
     // Open case — batch viewer calls
     const viewerStart = Date.now()
-    http.batch([
+    const viewerBatch = http.batch([
       ['GET', `${BASE_URL}/api/v2/nextEcg?id=${task.taskId}&assignedAt=${task.assignedAt}`, null, { headers: h, tags: { name: 'nextEcg' } }],
       ['GET', `${BASE_URL}/api/v2/tasks/${task.taskId}/algo`, null, { headers: h, tags: { name: 'tasks/algo' } }],
       ['GET', `${BASE_URL}/api/v2/ecgData/${task.taskId}`, null, { headers: h, tags: { name: 'ecgData' } }],
@@ -147,6 +150,8 @@ function ecgCaseReview(BASE_URL, h, user) {
       ['GET', `${BASE_URL}/api/v2/tasks/${task.taskId}/history/count`, null, { headers: h, tags: { name: 'tasks/history/count' } }],
       ['GET', `${BASE_URL}/api/v2/case/${task.caseId}/comments/history`, null, { headers: h, tags: { name: 'case/comments/history' } }],
     ])
+    const viewerNames = ['nextEcg', 'tasks/algo', 'ecgData', 'patient', 'tasks/history/count', 'case/comments/history']
+    viewerBatch.forEach((r, i) => check(r, { [`${viewerNames[i]} ok`]: (res) => res.status === 200 }))
     ecgViewerLoadDuration.add(Date.now() - viewerStart)
 
     // 30-60s WebSocket session (reviewing ECG)
@@ -163,24 +168,27 @@ function filterSearch(BASE_URL, h, user) {
     const start = Date.now()
 
     // All cases
-    http.post(`${BASE_URL}/api/v2/tasks/v2`, JSON.stringify({
+    const allRes = http.post(`${BASE_URL}/api/v2/tasks/v2`, JSON.stringify({
       filter: { pageNo: 1, perPage: 10, startDate: '', endDate: '', caseId: '', patientId: '', taskTypes: 'RESTING', centerName: '', critical: null, state: '', stage: null, view: 'ALL' },
       sortBy: { datetime: { enable: true, order: 'DESC' } },
     }), { headers: h, tags: { name: 'tasks/v2' } })
+    check(allRes, { 'tasks/v2 ok': (r) => r.status === 200 })
 
     randomSleep(1, 2)
 
     // Filter by task type
-    http.post(`${BASE_URL}/api/v2/tasks/v2`, JSON.stringify({
+    const filteredRes = http.post(`${BASE_URL}/api/v2/tasks/v2`, JSON.stringify({
       filter: { pageNo: 1, perPage: 10, startDate: '', endDate: '', caseId: '', patientId: '', taskTypes: 'RESTING', centerName: '', critical: null, state: '', stage: 'ASSIGNED_DIAGNOSED', view: 'ALL' },
       sortBy: { datetime: { enable: true, order: 'DESC' } },
     }), { headers: h, tags: { name: 'tasks/v2-filtered' } })
+    check(filteredRes, { 'tasks/v2-filtered ok': (r) => r.status === 200 })
 
     // Pagination — page 2
-    http.post(`${BASE_URL}/api/v2/tasks/v2`, JSON.stringify({
+    const page2Res = http.post(`${BASE_URL}/api/v2/tasks/v2`, JSON.stringify({
       filter: { pageNo: 2, perPage: 10, startDate: '', endDate: '', caseId: '', patientId: '', taskTypes: 'RESTING', centerName: '', critical: null, state: '', stage: null, view: 'ALL' },
       sortBy: { datetime: { enable: true, order: 'DESC' } },
     }), { headers: h, tags: { name: 'tasks/v2-page2' } })
+    check(page2Res, { 'tasks/v2-page2 ok': (r) => r.status === 200 })
 
     taskFilterDuration.add(Date.now() - start)
   })
@@ -195,6 +203,7 @@ function multiCaseReview(BASE_URL, h, user) {
       filter: { doctorName: user.doctorName, pageNo: 1, perPage: 25, stage: 'ASSIGNED_DIAGNOSED', taskTypes: 'RESTING' },
       sortBy: { datetime: { enable: false }, timeread: { enable: true, order: 'DESC' }, assignedAt: { enable: true, order: 'DESC' } },
     }), { headers: h, tags: { name: 'tasks/latest' } })
+    check(tasksRes, { 'tasks/latest ok': (r) => r.status === 200 })
 
     let tasks = []
     try {
@@ -207,11 +216,13 @@ function multiCaseReview(BASE_URL, h, user) {
     const casesToReview = tasks.slice(0, 3)
     for (const task of casesToReview) {
       const viewerStart = Date.now()
-      http.batch([
+      const mcBatch = http.batch([
         ['GET', `${BASE_URL}/api/v2/nextEcg?id=${task.taskId}&assignedAt=${task.assignedAt}`, null, { headers: h, tags: { name: 'nextEcg' } }],
         ['GET', `${BASE_URL}/api/v2/ecgData/${task.taskId}`, null, { headers: h, tags: { name: 'ecgData' } }],
         ['GET', `${BASE_URL}/api/v2/patient/${task.taskId}/`, null, { headers: h, tags: { name: 'patient' } }],
       ])
+      const mcNames = ['nextEcg', 'ecgData', 'patient']
+      mcBatch.forEach((r, i) => check(r, { [`${mcNames[i]} ok`]: (res) => res.status === 200 }))
       ecgViewerLoadDuration.add(Date.now() - viewerStart)
       randomSleep(1, 3)
     }
