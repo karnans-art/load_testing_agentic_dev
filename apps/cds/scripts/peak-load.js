@@ -1,21 +1,16 @@
 // CDS — Peak Load Test (3x Production)
-// Simulates peak traffic: 3x normal rate
-// Includes simulator pushing cases + doctor workflows
+// Includes simulator pushing unique ECG cases + doctor workflows
 // Run: k6 run apps/cds/scripts/peak-load.js
 
-import http from 'k6/http'
-import { check, sleep } from 'k6'
+import { sleep } from 'k6'
 import { authHeaders, isLoggedIn } from './lib/cds-auth.js'
-import { doctorWorkflow } from './lib/cds-workflow.js'
+import { doctorWorkflow, logoutAllDoctors } from './lib/cds-workflow.js'
+import { simulatorPush } from './lib/cds-simulator.js'
 
 const USERS = JSON.parse(open('../users.json')).users
 const MAX_VUS = parseInt(__ENV.MAX_VUS || '0')
 const VU_COUNT = MAX_VUS > 0 ? Math.min(MAX_VUS, USERS.length) : USERS.length
 const PEAK_MULTIPLIER = parseInt(__ENV.PEAK_MULTIPLIER || '3')
-
-const ADMIN_URL = __ENV.SIMULATOR_ADMIN_URL || 'https://uat-admin.tricogdev.net'
-const ADMIN_COOKIE = __ENV.TRICOG_ADMIN_COOKIE || ''
-const CSI_FILE = open('../fixtures/sample.csi', 'b')
 
 export const options = {
   scenarios: {
@@ -26,7 +21,7 @@ export const options = {
       duration:        '10m',
       preAllocatedVUs: 1,
       maxVUs:          4,
-      exec:            'simulatorPush',
+      exec:            'simPush',
     },
     doctors: {
       executor:        'constant-arrival-rate',
@@ -45,31 +40,11 @@ export const options = {
   },
 }
 
-export function simulatorPush() {
-  const res = http.post(`${ADMIN_URL}/api/case/simulator`, {
-    centerId:  '3520',
-    caseType:  'RESTING',
-    clientUrl: 'http://cloud-server/simulate',
-    deviceId:  'HE-BE68A686',
-    file:      http.file(CSI_FILE, 'sample.csi', 'application/octet-stream'),
-  }, {
-    headers: {
-      'cookie':          ADMIN_COOKIE,
-      'x-custom-header': 'foobar',
-    },
-    tags: { name: 'simulator' },
-  })
-
-  const ok = check(res, { 'simulator push ok': (r) => r.status >= 200 && r.status < 300 })
-  if (!ok) {
-    console.error(`Simulator push failed: ${res.status} — ${res.body?.slice(0, 200)}`)
-  }
-}
+export function simPush() { simulatorPush() }
 
 export function doctorFlow() {
   authHeaders()
   if (!isLoggedIn()) { sleep(1); return }
-
   doctorWorkflow()
   sleep(1)
 }
@@ -79,5 +54,6 @@ export function setup() {
 }
 
 export function teardown() {
+  logoutAllDoctors(USERS, VU_COUNT)
   console.log('Peak load test complete')
 }

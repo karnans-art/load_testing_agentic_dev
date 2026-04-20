@@ -8,8 +8,11 @@ import { check, group, sleep } from 'k6'
 import { authHeaders, getUser, getBaseUrl } from './cds-auth.js'
 import {
   dashboardLoadDuration, taskListDuration, ecgViewerLoadDuration,
-  queueCheckDuration, apiSuccessRate, apiErrorCount,
+  queueCheckDuration, diagnosisSubmitDuration, casesProcessedCount,
+  apiSuccessRate, apiErrorCount,
 } from './cds-metrics.js'
+
+const INVOKER_ENABLED = (__ENV.INVOKER_ENABLED || 'false').toLowerCase() === 'true'
 
 /**
  * Build shift payload for report APIs (doctor/avg, day/avg).
@@ -91,27 +94,52 @@ export function doctorWorkflow() {
     const queueRes = batchRes[batchRes.length - 1]
     if (queueRes) queueCheckDuration.add(queueRes.timings.duration)
 
-    try {
-      const body = tasksRes.json()
-      tasks = body.tasks || body
-      if (!Array.isArray(tasks)) tasks = []
-    } catch (_) {}
+    if (INVOKER_ENABLED) {
+      // Invoker ON: tasks/latest has auto-assigned cases — filter out already diagnosed
+      try {
+        const body = tasksRes.json()
+        const allTasks = body.tasks || body
+        if (Array.isArray(allTasks)) {
+          tasks = allTasks.filter(t => t && t.taskId && t.taskId !== 'undefined' && t.stage !== 'DIAGNOSED')
+        }
+      } catch (_) {}
+    } else {
+      // Invoker OFF: use tasks/v2 UNDIAGNOSED — manual assign needed
+      const v2Res = http.post(`${BASE_URL}/api/v2/tasks/v2`, JSON.stringify({
+        filter: { pageNo: 1, perPage: 10, stage: 'UNDIAGNOSED', taskTypes: 'RESTING' },
+        sortBy: { datetime: { enable: true, order: 'DESC' } },
+      }), { headers, tags: { name: 'tasks/v2-undiagnosed' } })
+      try {
+        const v2Body = v2Res.json()
+        const v2Tasks = v2Body.tasks || v2Body
+        if (Array.isArray(v2Tasks)) {
+          tasks = v2Tasks.filter(t => t && t.taskId && t.taskId !== 'undefined')
+        }
+      } catch (_) {}
+    }
   })
+
+  if (tasks.length === 0) {
+    console.log(`[VU${__VU}] No valid tasks — skipping diagnosis page`)
+    return
+  }
 
   // ── Diagnosis Page — loop through each task ───────────────
   for (const task of tasks) {
-    // Fetch assignable doctors, then assign this task
-    const usersRes = http.get(`${BASE_URL}/api/v2/task/${task.taskId}/users?role=undefined`, { headers, tags: { name: 'task/users' } })
-    check(usersRes, { 'task/users ok': (r) => r.status === 200 })
+    // Manual assign only when Invoker is OFF (cases not pre-assigned)
+    if (!INVOKER_ENABLED && !task.assignedAt) {
+      const usersRes = http.get(`${BASE_URL}/api/v2/task/${task.taskId}/users?role=undefined`, { headers, tags: { name: 'task/users' } })
+      check(usersRes, { 'task/users ok': (r) => r.status === 200 })
 
-    let assignable = []
-    try { assignable = usersRes.json().users || [] } catch (_) {}
-    const me = assignable.find(u => u.username.toLowerCase() === user.username.toLowerCase())
-    if (me) {
-      const assignRes = http.post(`${BASE_URL}/api/v2/task/assign`, JSON.stringify({
-        assignments: [{ username: me.username, taskId: task.taskId, role: 'DOCTOR' }],
-      }), { headers, tags: { name: 'task/assign' } })
-      check(assignRes, { 'task/assign ok': (r) => r.status >= 200 && r.status < 300 })
+      let assignable = []
+      try { assignable = usersRes.json().users || [] } catch (_) {}
+      const me = assignable.find(u => u.username.toLowerCase() === user.username.toLowerCase())
+      if (me) {
+        const assignRes = http.post(`${BASE_URL}/api/v2/task/assign`, JSON.stringify({
+          assignments: [{ username: me.username, taskId: task.taskId, role: 'DOCTOR' }],
+        }), { headers, tags: { name: 'task/assign' } })
+        check(assignRes, { 'task/assign ok': (r) => r.status >= 200 && r.status < 300 })
+      }
     }
 
     group('Diagnosis Page', () => {
@@ -121,12 +149,13 @@ export function doctorWorkflow() {
       check(nextEcgRes, { 'nextEcg ok': (r) => r.status === 200 })
 
       // Viewer batch — parallel calls for case data
+      const caseId = task.caseId || task.taskId
       const viewerBatch = http.batch([
         ['GET', `${BASE_URL}/api/v2/tasks/${task.taskId}/algo`, null, { headers, tags: { name: 'tasks/algo' } }],
         ['GET', `${BASE_URL}/api/v2/ecgData/${task.taskId}`, null, { headers, tags: { name: 'ecgData' } }],
         ['GET', `${BASE_URL}/api/v2/patient/${task.taskId}/`, null, { headers, tags: { name: 'patient' } }],
         ['GET', `${BASE_URL}/api/v2/tasks/${task.taskId}/history/count`, null, { headers, tags: { name: 'tasks/history/count' } }],
-        ['GET', `${BASE_URL}/api/v2/case/${task.caseId}/comments/history`, null, { headers, tags: { name: 'case/comments/history' } }],
+        ['GET', `${BASE_URL}/api/v2/case/${caseId}/comments/history`, null, { headers, tags: { name: 'case/comments/history' } }],
       ])
 
       const viewerNames = ['tasks/algo', 'ecgData', 'patient', 'tasks/history/count', 'case/comments/history']
@@ -144,8 +173,87 @@ export function doctorWorkflow() {
 }
 
 /**
+ * Submit diagnosis for a task.
+ * Uses TEXT-based diagnosis (LoadTest3 domain config).
+ * Call after opening the case (nextEcg + ecgData).
+ */
+export function diagnoseTask(taskId, username) {
+  const BASE_URL = getBaseUrl()
+  let headers = authHeaders()
+
+  const diagStart = Date.now()
+  const diagRes = http.post(`${BASE_URL}/api/v2/diagnose/${taskId}`, JSON.stringify({
+    action: 'send',
+    diagnosedBy: username,
+    hubEcgType: 'RESTING',
+    metadata: {
+      autoDiagnose: false, isQTCDerived: true, QTCMeasurement: 'qtijti',
+      centerTimeZone: 'Asia/Kolkata', sbradThreshold: '55BPM',
+      repeatCasesInfo: { isCaseRepeated: false, repeatThreshold: '30' },
+      appendNormalAxis: 1, interpretationRules: [],
+      originalMachineMeasurements: '{"AtrialRate":74,"ECGSampleBase":500,"ECGSampleExponent":0,"PAxis":51,"POffset":378,"POnset":292,"PRInterval":146,"QOffset":512,"QOnset":438,"QRSCount":12,"QRSDuration":74,"QTCorrected":99,"QTInterval":374,"RAxis":74,"TAxis":51,"TOffset":812,"VentricularRate":74,"RRInterval":811}',
+      suppressNormalClassification: 'NO', suppressAbnormalClassification: 'NO', suppressCriticalClassification: 'NO',
+      FIPRCodeMapping: '',
+      thaMeasurements: { AtrialRate: 73, PAxis: 53, POffset: null, POnset: null, PRInterval: 156, QOffset: null, QOnset: null, QRSCount: null, QTCorrected: 95, QTInterval: 360, RAxis: 73, TAxis: 43, TOffset: null, VentricularRate: 74, QRSDuration: 84, QTCorrectedBazett: null, QTCorrectedFramingham: null, QTCorrectedFridericia: null, QTCorrectedQtiJti: null, RRVar: 11 },
+    },
+    isTelegramEcg: false, manualRequestForRepeat: false, isCritical: 0, shownType: '', timeStart: '',
+    finalClassification: {
+      selectedComments: [], overridden: false, selectedCodes: [],
+      viewerVersion: '', diagnosisType: 'TEXT', consentOnEmptyMeasurement: null,
+      diagnosis: 'Normal sinus rhythm. Load test diagnosis.',
+      status: 'Normal ECG',
+    },
+    viewerVersion: '2.5',
+    measurements: {
+      finalMachineMeasurements: { AtrialRate: 74, ECGSampleBase: 500, ECGSampleExponent: 0, PAxis: 51, POffset: 378, POnset: 292, PRInterval: 146, QOffset: 512, QOnset: 438, QRSCount: 12, QRSDuration: 74, QTCorrected: 99, QTInterval: 374, RAxis: 74, TAxis: 51, TOffset: 812, VentricularRate: 74, RRInterval: 811 },
+      initialMachineMeasurements: { AtrialRate: 74, ECGSampleBase: 500, ECGSampleExponent: 0, PAxis: 51, POffset: 378, POnset: 292, PRInterval: 146, QOffset: 512, QOnset: 438, QRSCount: 12, QRSDuration: 74, QTCorrected: 99, QTInterval: 374, RAxis: 74, TAxis: 51, TOffset: 812, VentricularRate: 74, RRInterval: 811 },
+    },
+    isRequestForRepeat: false,
+    status: 'Normal ECG',
+    diagnosis: 'Normal sinus rhythm. Load test diagnosis.',
+    diagnosisCode: null,
+  }), { headers, tags: { name: 'diagnose' } })
+
+  const ok = check(diagRes, { 'diagnose ok': (r) => r.status === 200 })
+  diagnosisSubmitDuration.add(Date.now() - diagStart)
+  apiSuccessRate.add(ok ? 1 : 0)
+  if (ok) casesProcessedCount.add(1)
+  if (!ok) {
+    apiErrorCount.add(1)
+    console.error(`[VU${__VU}] diagnose ${taskId.slice(0,8)} failed: ${diagRes.status} — ${diagRes.body?.substring(0, 200)}`)
+  }
+
+  return ok
+}
+
+/**
  * Simulated think time — random sleep between actions.
  */
 export function randomSleep(min = 1, max = 5) {
   sleep(min + Math.random() * (max - min))
+}
+
+/**
+ * Logout all doctors — call in teardown() to release Invoker stickiness.
+ * Logs in as each user and logs them out.
+ */
+export function logoutAllDoctors(users, vuCount) {
+  const BASE_URL = getBaseUrl()
+  const HDRS = { 'Accept': 'application/json, text/plain, */*', 'Content-Type': 'application/json', 'clientdevicetype': 'Linux x86_64', 'clientos': 'INSTA_ECG_VIEWER', 'clientversion': '0.14.5', 'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36' }
+
+  console.log(`Logging out ${vuCount} doctors...`)
+  for (let i = 0; i < vuCount; i++) {
+    const user = users[i]
+    if (!user) continue
+    const loginRes = http.post(`${BASE_URL}/api/v2/login`, JSON.stringify({
+      domainId: user.domainId, username: user.username, password: user.password,
+      application: 'INSTA_ECG_VIEWER', appVersion: '3.0.0',
+    }), { headers: HDRS })
+    const token = loginRes.json('token')
+    if (!token) continue
+    const h = { ...HDRS, 'token': token }
+    http.post(`${BASE_URL}/api/v2/updateActive`, JSON.stringify({ isActive: 0, captureEvent: false }), { headers: h })
+    http.post(`${BASE_URL}/api/v2/logout`, null, { headers: h })
+  }
+  console.log('All doctors logged out')
 }

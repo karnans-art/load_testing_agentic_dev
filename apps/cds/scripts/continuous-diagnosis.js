@@ -2,8 +2,7 @@
 // Power user: doctor processes undiagnosed cases in a loop.
 // Flow: dashboard → nextEcg → open case → review 30-45s → POST /diagnose → repeat
 //
-// NOTE: POST /api/v2/diagnose payload is a PLACEHOLDER — needs real curl from DevTools.
-//       The rest of the flow is fully functional.
+// POST /api/v2/diagnose is fully implemented (TEXT-based diagnosis for LoadTest3).
 //
 // Run: npm run diagnosis:cds
 
@@ -11,7 +10,8 @@ import http from 'k6/http'
 import { check, group, sleep } from 'k6'
 import { authHeaders, isLoggedIn, getUser, getBaseUrl } from './lib/cds-auth.js'
 import { openWebSocket } from './lib/cds-websocket.js'
-import { randomSleep } from './lib/cds-workflow.js'
+import { randomSleep, diagnoseTask, logoutAllDoctors } from './lib/cds-workflow.js'
+import { simulatorPush } from './lib/cds-simulator.js'
 import {
   dashboardLoadDuration, caseOpenDuration, diagnosisReviewDuration,
   diagnosisSubmitDuration, casesProcessedCount, apiSuccessRate, apiErrorCount,
@@ -21,20 +21,18 @@ const USERS = JSON.parse(open('../users.json')).users
 const MAX_VUS = parseInt(__ENV.MAX_VUS || '0')
 const VU_COUNT = MAX_VUS > 0 ? Math.min(MAX_VUS, USERS.length) : USERS.length
 
-const ADMIN_URL = __ENV.SIMULATOR_ADMIN_URL || 'https://uat-admin.tricogdev.net'
-const ADMIN_COOKIE = __ENV.TRICOG_ADMIN_COOKIE || ''
-const CSI_FILE = open('../fixtures/sample.csi', 'b')
+const INVOKER_ENABLED = (__ENV.INVOKER_ENABLED || 'false').toLowerCase() === 'true'
 
 export const options = {
   scenarios: {
     simulator: {
       executor:        'constant-arrival-rate',
-      rate:            6,
+      rate:            Math.max(6, VU_COUNT * 2),  // 2 cases/min per VU to keep queue fed
       timeUnit:        '1m',
       duration:        '5m',
       preAllocatedVUs: 1,
       maxVUs:          2,
-      exec:            'simulatorPush',
+      exec:            'simPush',
     },
     doctors: {
       executor:    'ramping-vus',
@@ -57,19 +55,7 @@ export const options = {
   },
 }
 
-export function simulatorPush() {
-  const res = http.post(`${ADMIN_URL}/api/case/simulator`, {
-    centerId:  '3520',
-    caseType:  'RESTING',
-    clientUrl: 'http://cloud-server/simulate',
-    deviceId:  'HE-BE68A686',
-    file:      http.file(CSI_FILE, 'sample.csi', 'application/octet-stream'),
-  }, {
-    headers: { 'cookie': ADMIN_COOKIE, 'x-custom-header': 'foobar' },
-    tags: { name: 'simulator' },
-  })
-  check(res, { 'simulator push ok': (r) => r.status >= 200 && r.status < 300 })
-}
+export function simPush() { simulatorPush() }
 
 export function diagnosisLoop() {
   let h = authHeaders()
@@ -79,66 +65,93 @@ export function diagnosisLoop() {
   const user = getUser()
   if (!user) return
 
-  // ── Dashboard Load ─────────────────────────────────────────
-  group('Dashboard', () => {
-    const start = Date.now()
-    http.batch([
-      ['GET', `${BASE_URL}/api/v2/config`, null, { headers: h, tags: { name: 'config' } }],
-      ['GET', `${BASE_URL}/api/v2/language`, null, { headers: h, tags: { name: 'language' } }],
-      ['GET', `${BASE_URL}/api/v2/user`, null, { headers: h, tags: { name: 'user' } }],
-      ['GET', `${BASE_URL}/api/v2/getQueueLength`, null, { headers: h, tags: { name: 'getQueueLength' } }],
-      ['GET', `${BASE_URL}/api/v2/report/doctor/active`, null, { headers: h, tags: { name: 'report/doctor/active' } }],
-      ['GET', `${BASE_URL}/api/v2/report/total/eta`, null, { headers: h, tags: { name: 'report/total/eta' } }],
-    ])
-    dashboardLoadDuration.add(Date.now() - start)
-  })
+  const QUEUE_SIZE = 2  // matches domain config queue_length
+  const MAX_CYCLES = 5  // max cycles per iteration to prevent infinite loops
 
-  // Mark doctor active
-  http.post(`${BASE_URL}/api/v2/updateActive`,
-    JSON.stringify({ isActive: 1, captureEvent: false }),
-    { headers: h, tags: { name: 'updateActive' } })
+  for (let cycle = 1; cycle <= MAX_CYCLES; cycle++) {
+    // ── Step 1: Dashboard Load (doctor returns to home page) ──
+    group('Dashboard', () => {
+      const start = Date.now()
+      http.batch([
+        ['GET', `${BASE_URL}/api/v2/config`, null, { headers: h, tags: { name: 'config' } }],
+        ['GET', `${BASE_URL}/api/v2/language`, null, { headers: h, tags: { name: 'language' } }],
+        ['GET', `${BASE_URL}/api/v2/user`, null, { headers: h, tags: { name: 'user' } }],
+        ['GET', `${BASE_URL}/api/v2/getQueueLength`, null, { headers: h, tags: { name: 'getQueueLength' } }],
+        ['GET', `${BASE_URL}/api/v2/report/doctor/active`, null, { headers: h, tags: { name: 'report/doctor/active' } }],
+        ['GET', `${BASE_URL}/api/v2/report/total/eta`, null, { headers: h, tags: { name: 'report/total/eta' } }],
+      ])
+      dashboardLoadDuration.add(Date.now() - start)
+    })
 
-  // ── Fetch next undiagnosed case ────────────────────────────
-  group('Fetch Case', () => {
-    const nextRes = http.get(`${BASE_URL}/api/v2/nextEcg`, { headers: h, tags: { name: 'nextEcg-undiagnosed' } })
-    const nextOk = check(nextRes, { 'nextEcg ok': (r) => r.status === 200 })
-    apiSuccessRate.add(nextOk ? 1 : 0)
+    // Mark doctor active (triggers queue refresh + Invoker assignment)
+    http.post(`${BASE_URL}/api/v2/updateActive`,
+      JSON.stringify({ isActive: 1, captureEvent: false }),
+      { headers: h, tags: { name: 'updateActive' } })
 
-    if (!nextOk || nextRes.status !== 200) return
+    // ── Step 2: Get undiagnosed cases (max queue_length) ───────
+    let tasks = []
+    group('Fetch Cases', () => {
+      // Always fetch undiagnosed cases — works with both Invoker ON and OFF
+      const undiagRes = http.post(`${BASE_URL}/api/v2/tasks/v2`, JSON.stringify({
+        filter: { pageNo: 1, perPage: QUEUE_SIZE, stage: 'UNDIAGNOSED', taskTypes: 'RESTING' },
+        sortBy: { datetime: { enable: true, order: 'DESC' } },
+      }), { headers: h, tags: { name: 'tasks/v2-undiagnosed' } })
+      try {
+        const body = undiagRes.json()
+        tasks = (body.tasks || body || []).filter(t => t && t.taskId && t.taskId !== 'undefined')
+      } catch (_) {}
+    })
 
-    let task = null
-    try { task = nextRes.json() } catch (_) {}
-    if (!task || !task.taskId) return
+    if (tasks.length === 0) {
+      console.log(`[VU${__VU}] Cycle ${cycle}: no cases — stopping`)
+      break
+    }
 
-    // ── Open Case ────────────────────────────────────────────
-    const openStart = Date.now()
-    http.batch([
-      ['GET', `${BASE_URL}/api/v2/ecgData/${task.taskId}`, null, { headers: h, tags: { name: 'ecgData' } }],
-      ['GET', `${BASE_URL}/api/v2/patient/${task.taskId}/`, null, { headers: h, tags: { name: 'patient' } }],
-      ['GET', `${BASE_URL}/api/v2/tasks/${task.taskId}/algo`, null, { headers: h, tags: { name: 'tasks/algo' } }],
-      ['GET', `${BASE_URL}/api/v2/tasks/${task.taskId}/history/count`, null, { headers: h, tags: { name: 'tasks/history/count' } }],
-      ['GET', `${BASE_URL}/api/v2/case/${task.caseId || task.taskId}/comments/history`, null, { headers: h, tags: { name: 'case/comments/history' } }],
-    ])
-    caseOpenDuration.add(Date.now() - openStart)
+    // ── Step 3: Process each case (max 2) ─────────────────────
+    for (const task of tasks.slice(0, QUEUE_SIZE)) {
+      group(`Diagnose Case`, () => {
+        // Assign if not already assigned to this doctor
+        if (!task.assignedAt) {
+          const usersRes = http.get(`${BASE_URL}/api/v2/task/${task.taskId}/users?role=undefined`, { headers: h, tags: { name: 'task/users' } })
+          let assignable = []
+          try { assignable = usersRes.json().users || [] } catch (_) {}
+          const me = assignable.find(u => u.username.toLowerCase() === user.username.toLowerCase())
+          if (me) {
+            http.post(`${BASE_URL}/api/v2/task/assign`, JSON.stringify({
+              assignments: [{ username: me.username, taskId: task.taskId, role: 'DOCTOR' }],
+            }), { headers: h, tags: { name: 'task/assign' } })
+          }
+        }
 
-    // ── Review (30-45s WebSocket + think time) ───────────────
-    const reviewStart = Date.now()
-    const reviewSec = 30 + Math.floor(Math.random() * 15)
-    openWebSocket(h.token, reviewSec, 'ecg_review')
-    diagnosisReviewDuration.add(Date.now() - reviewStart)
+        // Open case
+        const caseId = task.caseId || task.taskId
+        http.get(`${BASE_URL}/api/v2/nextEcg?id=${task.taskId}&assignedAt=${task.assignedAt || ''}`, { headers: h, tags: { name: 'nextEcg' } })
 
-    // ── Submit Diagnosis (PLACEHOLDER) ───────────────────────
-    // TODO: Replace with real POST /api/v2/diagnose curl payload
-    // The real payload needs: taskId, diagnosis codes, comments, form data
-    // Capture it from DevTools when submitting a real diagnosis
-    //
-    // const diagStart = Date.now()
-    // const diagRes = http.post(`${BASE_URL}/api/v2/diagnose`, diagPayload, { headers: h, tags: { name: 'diagnose' } })
-    // check(diagRes, { 'diagnose ok': (r) => r.status >= 200 && r.status < 300 })
-    // diagnosisSubmitDuration.add(Date.now() - diagStart)
+        const openStart = Date.now()
+        http.batch([
+          ['GET', `${BASE_URL}/api/v2/ecgData/${task.taskId}`, null, { headers: h, tags: { name: 'ecgData' } }],
+          ['GET', `${BASE_URL}/api/v2/patient/${task.taskId}/`, null, { headers: h, tags: { name: 'patient' } }],
+          ['GET', `${BASE_URL}/api/v2/tasks/${task.taskId}/algo`, null, { headers: h, tags: { name: 'tasks/algo' } }],
+          ['GET', `${BASE_URL}/api/v2/tasks/${task.taskId}/history/count`, null, { headers: h, tags: { name: 'tasks/history/count' } }],
+          ['GET', `${BASE_URL}/api/v2/case/${caseId}/comments/history`, null, { headers: h, tags: { name: 'case/comments/history' } }],
+        ])
+        caseOpenDuration.add(Date.now() - openStart)
 
-    casesProcessedCount.add(1)
-  })
+        // Review with WebSocket
+        const reviewStart = Date.now()
+        openWebSocket(h.token, 5, 'ecg_review')
+        diagnosisReviewDuration.add(Date.now() - reviewStart)
+
+        // Submit diagnosis
+        diagnoseTask(task.taskId, user.username)
+      })
+
+      randomSleep(1, 2)
+    }
+
+    // ── Step 4: Back to dashboard (next cycle) ────────────────
+    randomSleep(1, 2)
+  }
 
   randomSleep(1, 3)
 }
@@ -148,5 +161,6 @@ export function setup() {
 }
 
 export function teardown() {
+  logoutAllDoctors(USERS, VU_COUNT)
   console.log('Continuous diagnosis complete')
 }

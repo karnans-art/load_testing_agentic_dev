@@ -10,7 +10,8 @@ import http from 'k6/http'
 import { check, group, sleep } from 'k6'
 import { authHeaders, isLoggedIn, getUser, getBaseUrl } from './lib/cds-auth.js'
 import { openWebSocket } from './lib/cds-websocket.js'
-import { randomSleep } from './lib/cds-workflow.js'
+import { randomSleep, logoutAllDoctors } from './lib/cds-workflow.js'
+import { simulatorPush } from './lib/cds-simulator.js'
 import {
   dashboardLoadDuration, taskListDuration, ecgViewerLoadDuration,
   taskFilterDuration, apiSuccessRate, apiErrorCount,
@@ -20,20 +21,16 @@ const USERS = JSON.parse(open('../users.json')).users
 const MAX_VUS = parseInt(__ENV.MAX_VUS || '0')
 const VU_COUNT = MAX_VUS > 0 ? Math.min(MAX_VUS, USERS.length) : USERS.length
 
-const ADMIN_URL = __ENV.SIMULATOR_ADMIN_URL || 'https://uat-admin.tricogdev.net'
-const ADMIN_COOKIE = __ENV.TRICOG_ADMIN_COOKIE || ''
-const CSI_FILE = open('../fixtures/sample.csi', 'b')
-
 export const options = {
   scenarios: {
     simulator: {
       executor:        'constant-arrival-rate',
-      rate:            6,
+      rate:            Math.max(6, VU_COUNT * 2),
       timeUnit:        '1m',
       duration:        '5m',
       preAllocatedVUs: 1,
       maxVUs:          2,
-      exec:            'simulatorPush',
+      exec:            'simPush',
     },
     doctors: {
       executor:    'ramping-vus',
@@ -56,19 +53,7 @@ export const options = {
   },
 }
 
-export function simulatorPush() {
-  const res = http.post(`${ADMIN_URL}/api/case/simulator`, {
-    centerId:  '3520',
-    caseType:  'RESTING',
-    clientUrl: 'http://cloud-server/simulate',
-    deviceId:  'HE-BE68A686',
-    file:      http.file(CSI_FILE, 'sample.csi', 'application/octet-stream'),
-  }, {
-    headers: { 'cookie': ADMIN_COOKIE, 'x-custom-header': 'foobar' },
-    tags: { name: 'simulator' },
-  })
-  check(res, { 'simulator push ok': (r) => r.status >= 200 && r.status < 300 })
-}
+export function simPush() { simulatorPush() }
 
 export function doctorFlow() {
   const h = authHeaders()
@@ -234,5 +219,6 @@ export function setup() {
 }
 
 export function teardown() {
+  logoutAllDoctors(USERS, VU_COUNT)
   console.log('Full doctor flow complete')
 }

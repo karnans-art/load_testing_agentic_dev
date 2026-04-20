@@ -125,21 +125,157 @@ Created specifically for load testing. Key config (from login response):
 
 ### Invoker (Auto-Assignment Service)
 
-The **Invoker** is a backend service that automatically assigns incoming ECG cases to available doctors. It is:
+The **Invoker** is a backend service that automatically assigns incoming ECG cases to available doctors. It is a **domain-level setting** — enabled per domain, not globally.
 
-- **Enabled on default/production domains** — cases arrive and get auto-assigned to doctors. Doctors see cases in their list without manual action.
-- **NOT enabled on LoadTest3** — since this is a custom load testing domain, the Invoker does not run. Cases pushed by the simulator are NOT auto-assigned.
+**Current state:** Enabled on LoadTest3 but not auto-assigning new cases (under investigation).
 
-**Impact on load tests:**
-- Doctors must **manually assign** cases to themselves: `task/users?role=undefined` → `task/assign`
-- The parameterless `GET /nextEcg` (auto-assign) returns 400 — confirmed by testing
-- All our test scripts use the manual assign flow, which is correct for LoadTest3
-- If Invoker were enabled, tasks/latest would show pre-assigned cases and the `task/assign` step could be skipped
+### Repeat Case Logic (Critical for Load Testing)
 
-**This is why:**
-- `cds-workflow.js` calls `task/users` → `task/assign` before every case view
-- `continuous-diagnosis.js` cannot use parameterless `nextEcg` on LoadTest3
-- The full doctor flow works because it reads from `tasks/latest` (already assigned cases from previous runs)
+The backend has a **repeat case detection** system. It analyzes the ECG content — specifically `caseId` and `patientId` inside the case data — to determine if an incoming ECG is a repeat of a previously submitted case.
+
+When the system detects a repeat case:
+
+- It does NOT assign to a random available doctor
+- It **routes back to the previously assigned doctor** who handled that patient/case before
+- It waits for that specific doctor to diagnose before releasing the slot
+- This is a product feature to ensure continuity of care — the same doctor follows up on the same patient
+
+**Impact on load testing:**
+- We push the same `sample.csi` file repeatedly — the backend sees identical ECG content
+- Same content = same patient/case identifiers = repeat case
+- All repeat cases route to the SAME doctor
+- Other 99 doctors sit idle with empty queues
+- This is why we see 200+ cases in the queue but the Invoker only assigns to one doctor
+
+**This is NOT caused by:**
+- Same device ID (device ID doesn't trigger repeat detection)
+- Same center ID (center is just routing, not repeat logic)
+
+**To fix for load testing:**
+- Need multiple different ECG sample files with unique patient/case data — **DONE: 34 unique files in fixtures/**
+- Simulator now rotates through all files via `cds-simulator.js`
+- If previously assigned doctor is **offline**, stickiness releases and Invoker assigns to an active doctor
+
+### WebSocket Presence (Critical Discovery)
+
+The Invoker does NOT use `updateActive` API alone to determine if a doctor is online. It requires an **active WebSocket connection** (Socket.IO) as the real presence signal.
+
+**Verified by testing:**
+- `updateActive` only (no WebSocket) → `report/doctor/active` shows `activeSum: 0` → Invoker does NOT assign cases
+- `updateActive` + WebSocket connection → doctor appears active → Invoker assigns cases → `nextEcg` returns cases
+
+**Impact on load test scripts:**
+
+| Script | Has WebSocket? | Invoker works? | Action needed |
+|--------|---------------|---------------|---------------|
+| `smoke.js` | No | No — Invoker won't assign | TODO: Add background WebSocket |
+| `peak-load.js` | No | No | TODO: Add background WebSocket |
+| `stress-test.js` | No | No | TODO: Add background WebSocket |
+| `soak-test.js` | No | No | TODO: Add background WebSocket |
+| `full-doctor-flow.js` | Yes | Yes — confirmed working | No change needed |
+| `continuous-diagnosis.js` | Yes (per case) | Partial — only active during review | TODO: Keep WebSocket open throughout |
+| `websocket-test.js` | Yes | Yes — but no case processing | No change needed |
+
+### Invoker Still Not Assigning (Under Investigation)
+
+Even with WebSocket active + `updateActive` + fresh doctor (zero history):
+- `nextEcg?id=init` returns `{ nextEcgDetails: false }`
+- `tasks/latest` returns 0 undiagnosed
+- Meanwhile `tasks/v2 UNDIAGNOSED` shows 10+ cases sitting unassigned
+- Queue has 6+ cases
+
+**Verified findings:**
+- `nextEcg?id=init` returns `false` even after diagnosis — no auto-feed of next case
+- Invoker does not assign new cases to load test doctors (even with WebSocket active)
+- After diagnosing, doctor must go back to dashboard and pick the next case manually
+
+**Confirmed working flow (manual assign cycle):**
+```
+Dashboard → tasks/v2 UNDIAGNOSED → pick case → task/users → task/assign
+→ nextEcg?id=xxx → open case → diagnose → BACK TO DASHBOARD → repeat
+```
+No back-to-back `nextEcg`. Each case requires full manual cycle. 28 cases diagnosed successfully.
+
+**Root cause found (from Invoker logs):**
+```
+"GroupIds is missing for a doctor ID - 395, group ids are "
+```
+The Invoker requires doctors to be in an **assignment group** (groupId). Our load test doctors were created without groupIds. The Invoker sees them online but can't assign because group matching fails.
+
+**Fix:** Add load test doctors to an assignment group in the admin portal. The domain config has `default_assignment_profile` with profile IDs — doctors need to be linked to these profiles.
+
+**Current recommendation:** Use manual assign flow until doctors are added to assignment groups. The `INVOKER_ENABLED` toggle exists for when this is configured.
+
+**TODO: Add persistent WebSocket to all doctor workflows**
+
+When `INVOKER_ENABLED=true`, each doctor VU should:
+1. Login + `updateActive`
+2. Open a **persistent WebSocket** connection (kept alive throughout the test)
+3. Process cases (Invoker assigns via the WebSocket presence)
+4. Close WebSocket only at teardown
+
+This is how the real browser works — the WebSocket stays open the entire time the doctor has the app open. The Invoker uses it as a heartbeat.
+
+**Implementation approach:**
+- Add a `keepAliveWebSocket(token)` function to `cds-websocket.js` that opens a long-lived connection
+- In each VU's first iteration, open the WebSocket
+- Keep it alive across iterations (VU-local state)
+- Close in teardown via `doLogout()`
+- This must be done carefully to avoid resource leaks — the WebSocket must be properly closed when the VU exits
+
+### Two flows depending on Invoker
+
+#### Invoker OFF (current — manual assign)
+
+```
+Simulator pushes case → sits unassigned in queue
+Doctor calls tasks/v2 (ALL view) → sees unassigned case
+  → task/users?role=undefined → get assignable doctors
+  → task/assign (with username from task/users response)
+  → nextEcg?id=xxx&assignedAt=xxx → open specific case
+  → ecgData, patient, algo, history, comments
+```
+
+- `tasks/latest` returns EMPTY (no cases assigned to this doctor)
+- `GET /nextEcg` without params returns 400 (no Invoker to pick next case)
+- Workflow falls back to `tasks/v2` → manual assign → view
+
+#### Invoker ON (after PR approved — auto-assign)
+
+```
+Simulator pushes case → Invoker auto-assigns to available doctor
+Doctor calls nextEcg (no params) → server returns next auto-assigned case
+  → ecgData, patient, algo, history, comments
+```
+
+- `tasks/latest` returns cases (Invoker assigned them to this doctor)
+- `GET /nextEcg` without params WORKS — server picks next case
+- No need for `task/users` → `task/assign` (already assigned by Invoker)
+
+### TODO: INVOKER_ENABLED toggle (pending PR approval)
+
+When Invoker is enabled on LoadTest3, add to `.env`:
+
+```
+INVOKER_ENABLED=true
+```
+
+This toggle must change the workflow in `cds-workflow.js`:
+
+| | INVOKER_ENABLED=false | INVOKER_ENABLED=true |
+|---|---|---|
+| Find cases | `tasks/v2` (ALL view) | `nextEcg` (no params) |
+| Assign | `task/users` → `task/assign` (manual) | Skip (Invoker did it) |
+| Open case | `nextEcg?id=xxx&assignedAt=xxx` | Response from `nextEcg` already has the case |
+| tasks/latest | Empty (no use) | Shows assigned cases |
+
+**Implementation steps when PR is approved:**
+1. Add `INVOKER_ENABLED` to `.env`
+2. Update `cds-workflow.js` — read env var, switch between manual and auto flow
+3. Update `full-doctor-flow.js` — ECG case review path uses `nextEcg` directly
+4. Update `continuous-diagnosis.js` — full loop: `nextEcg` → review → diagnose → next
+5. Test both paths: run with `INVOKER_ENABLED=true` and `false`
+6. Update knowledge base with results
 | `assignmentCutoffMinutes` | 40 | Timeout for assignment |
 
 ### Why multilogin=false matters

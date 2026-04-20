@@ -87,3 +87,21 @@ export function authHeaders(forceRefresh = false) {
 export function isLoggedIn() {
   return _token !== null
 }
+
+export function doLogout() {
+  if (!_token) return
+  const BASE_URL = getBaseUrl()
+  const h = { ...HEADERS, 'token': _token }
+
+  // Mark doctor offline — releases Invoker stickiness
+  http.post(`${BASE_URL}/api/v2/updateActive`,
+    JSON.stringify({ isActive: 0, captureEvent: false }),
+    { headers: h }
+  )
+
+  // Logout — invalidates token
+  http.post(`${BASE_URL}/api/v2/logout`, null, { headers: h })
+
+  console.log(`[VU${__VU}] Logged out`)
+  _token = null
+}

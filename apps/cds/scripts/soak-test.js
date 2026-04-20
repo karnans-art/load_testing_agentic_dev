@@ -1,20 +1,15 @@
 // CDS — Soak Test (Endurance)
 // 20 VUs for 2 hours — catches memory leaks, connection pool exhaustion, degradation.
-// Includes simulator pushing cases + doctor workflows.
 // Run: npm run soak:cds
 
-import http from 'k6/http'
-import { check, sleep } from 'k6'
+import { sleep } from 'k6'
 import { authHeaders, isLoggedIn } from './lib/cds-auth.js'
-import { doctorWorkflow, randomSleep } from './lib/cds-workflow.js'
+import { doctorWorkflow, randomSleep, logoutAllDoctors } from './lib/cds-workflow.js'
+import { simulatorPush } from './lib/cds-simulator.js'
 
 const USERS = JSON.parse(open('../users.json')).users
 const MAX_VUS = parseInt(__ENV.MAX_VUS || '0')
 const VU_COUNT = MAX_VUS > 0 ? Math.min(MAX_VUS, USERS.length) : USERS.length
-
-const ADMIN_URL = __ENV.SIMULATOR_ADMIN_URL || 'https://uat-admin.tricogdev.net'
-const ADMIN_COOKIE = __ENV.TRICOG_ADMIN_COOKIE || ''
-const CSI_FILE = open('../fixtures/sample.csi', 'b')
 
 export const options = {
   scenarios: {
@@ -25,7 +20,7 @@ export const options = {
       duration:        '2h',
       preAllocatedVUs: 1,
       maxVUs:          2,
-      exec:            'simulatorPush',
+      exec:            'simPush',
     },
     doctors: {
       executor:    'constant-vus',
@@ -42,24 +37,11 @@ export const options = {
   },
 }
 
-export function simulatorPush() {
-  const res = http.post(`${ADMIN_URL}/api/case/simulator`, {
-    centerId:  '3520',
-    caseType:  'RESTING',
-    clientUrl: 'http://cloud-server/simulate',
-    deviceId:  'HE-BE68A686',
-    file:      http.file(CSI_FILE, 'sample.csi', 'application/octet-stream'),
-  }, {
-    headers: { 'cookie': ADMIN_COOKIE, 'x-custom-header': 'foobar' },
-    tags: { name: 'simulator' },
-  })
-  check(res, { 'simulator push ok': (r) => r.status >= 200 && r.status < 300 })
-}
+export function simPush() { simulatorPush() }
 
 export function doctorFlow() {
   authHeaders()
   if (!isLoggedIn()) { sleep(1); return }
-
   doctorWorkflow()
   randomSleep(1, 3)
 }
@@ -69,5 +51,6 @@ export function setup() {
 }
 
 export function teardown() {
+  logoutAllDoctors(USERS, Math.min(VU_COUNT, 20))
   console.log('Soak test complete')
 }

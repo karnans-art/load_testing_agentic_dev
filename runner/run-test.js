@@ -69,6 +69,7 @@ if (CLOUD) k6Args.push('--out', 'cloud')
 k6Args.push(
   '-e', `BASE_URL=${process.env.BASE_URL}`,
   '-e', `MAX_VUS=${vuCount}`,
+  '-e', `INVOKER_ENABLED=${process.env.INVOKER_ENABLED || 'false'}`,
   scriptPath
 )
 

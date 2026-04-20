@@ -6,6 +6,7 @@
 import { sleep } from 'k6'
 import { authHeaders, isLoggedIn, getUser } from './lib/cds-auth.js'
 import { openWebSocket } from './lib/cds-websocket.js'
+import { logoutAllDoctors } from './lib/cds-workflow.js'
 
 const USERS = JSON.parse(open('../users.json')).users
 const MAX_VUS = parseInt(__ENV.MAX_VUS || '0')
@@ -50,5 +51,6 @@ export function setup() {
 }
 
 export function teardown() {
+  logoutAllDoctors(USERS, VU_COUNT)
   console.log('WebSocket test complete')
 }
