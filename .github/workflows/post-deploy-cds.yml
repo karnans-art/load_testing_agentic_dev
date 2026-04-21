@@ -1,0 +1,130 @@
+name: CDS Post-Deploy Load Test
+
+# ── Triggers ────────────────────────────────────────────────────────────────
+# 1. repository_dispatch  → fired automatically by CDS app repo after deploy
+# 2. workflow_dispatch    → manual run from GitHub Actions UI (for testing)
+on:
+  repository_dispatch:
+    types: [post-deploy-cds]
+
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'uat'
+        type: choice
+        options: [uat, staging]
+      max_vus:
+        description: 'Number of VUs for full-flow test'
+        required: false
+        default: '6'
+
+# ── Shared env across all jobs ───────────────────────────────────────────────
+env:
+  BASE_URL:             ${{ secrets.BASE_URL }}
+  K6_CLOUD_TOKEN:       ${{ secrets.K6_CLOUD_TOKEN }}
+  TRICOG_ADMIN_COOKIE:  ${{ secrets.TRICOG_ADMIN_COOKIE }}
+  INVOKER_ENABLED:      'true'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# JOB 1 — Smoke Test (gate)
+# Runs first. If this fails, full-flow is skipped entirely.
+# ─────────────────────────────────────────────────────────────────────────────
+jobs:
+  smoke:
+    name: Smoke Test (30s gate)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout load test repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install --omit=optional
+
+      - name: Install k6
+        run: |
+          curl -sL https://github.com/grafana/k6/releases/download/v1.7.1/k6-v1.7.1-linux-amd64.tar.gz | tar xz
+          sudo mv k6-v1.7.1-linux-amd64/k6 /usr/local/bin/
+          k6 version
+
+      - name: Run smoke test
+        run: node runner/run-test.js --app cds --script smoke --setup 5
+
+      - name: Smoke result summary
+        if: always()
+        run: |
+          echo "## Smoke Test" >> $GITHUB_STEP_SUMMARY
+          echo "- Status: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Triggered by: ${{ github.event.client_payload.actor || github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Deploy SHA: ${{ github.event.client_payload.sha || github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Environment: ${{ github.event.client_payload.environment || inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+
+# ─────────────────────────────────────────────────────────────────────────────
+# JOB 2 — Full Doctor Flow
+# Only runs if smoke passes (needs: smoke).
+# Simulates realistic doctor behaviour — dashboard / ECG review / filter / WS
+# ─────────────────────────────────────────────────────────────────────────────
+  full-flow:
+    name: Full Doctor Flow (5m)
+    runs-on: ubuntu-latest
+    needs: smoke                 # ← blocked until smoke passes
+
+    steps:
+      - name: Checkout load test repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install --omit=optional
+
+      - name: Install k6
+        run: |
+          curl -sL https://github.com/grafana/k6/releases/download/v1.7.1/k6-v1.7.1-linux-amd64.tar.gz | tar xz
+          sudo mv k6-v1.7.1-linux-amd64/k6 /usr/local/bin/
+
+      - name: Run full doctor flow
+        run: |
+          node runner/run-test.js --app cds --script full-doctor-flow \
+            --setup ${{ github.event.client_payload.max_vus || inputs.max_vus || '6' }}
+
+      - name: Full flow result summary
+        if: always()
+        run: |
+          echo "## Full Doctor Flow" >> $GITHUB_STEP_SUMMARY
+          echo "- Status: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- VUs: ${{ github.event.client_payload.max_vus || inputs.max_vus || '6' }}" >> $GITHUB_STEP_SUMMARY
+
+# ─────────────────────────────────────────────────────────────────────────────
+# JOB 3 — Final summary (always runs)
+# Posts combined results regardless of pass/fail.
+# ─────────────────────────────────────────────────────────────────────────────
+  summary:
+    name: Post Results
+    runs-on: ubuntu-latest
+    needs: [smoke, full-flow]
+    if: always()                 # ← runs even if smoke or full-flow failed
+
+    steps:
+      - name: Final summary
+        run: |
+          echo "## CDS Post-Deploy Load Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Test | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Smoke (30s gate) | ${{ needs.smoke.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Full Doctor Flow (5m) | ${{ needs.full-flow.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ github.event.client_payload.actor || github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Deploy SHA:** \`${{ github.event.client_payload.sha || github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ github.event.client_payload.environment || inputs.environment || 'uat' }}" >> $GITHUB_STEP_SUMMARY
