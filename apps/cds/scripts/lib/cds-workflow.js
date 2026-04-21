@@ -4,6 +4,7 @@
 // All IDs derived from live API responses — zero hardcoding.
 
 import http from 'k6/http'
+import ws from 'k6/ws'
 import { check, group, sleep } from 'k6'
 import { authHeaders, getUser, getBaseUrl } from './cds-auth.js'
 import {
@@ -234,12 +235,13 @@ export function randomSleep(min = 1, max = 5) {
 }
 
 /**
- * Logout all doctors — call in teardown() to release Invoker stickiness.
- * Logs in as each user and logs them out.
+ * Logout all doctors — call in teardown() to release queue stickiness.
+ * Logs in as each user, marks inactive, closes WebSocket, and logs out.
  */
 export function logoutAllDoctors(users, vuCount) {
   const BASE_URL = getBaseUrl()
-  const HDRS = { 'Accept': 'application/json, text/plain, */*', 'Content-Type': 'application/json', 'clientdevicetype': 'Linux x86_64', 'clientos': 'INSTA_ECG_VIEWER', 'clientversion': '0.14.5', 'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36' }
+  const wsBase = BASE_URL.replace('https://', 'wss://')
+  const HDRS = { 'Accept': 'application/json, text/plain, */*', 'Content-Type': 'application/json', 'clientdevicetype': 'Linux x86_64', 'clientos': 'INSTA_ECG_VIEWER', 'clientosversion': '5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36', 'clientversion': '0.14.5', 'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36' }
 
   console.log(`Logging out ${vuCount} doctors...`)
   for (let i = 0; i < vuCount; i++) {
@@ -252,8 +254,19 @@ export function logoutAllDoctors(users, vuCount) {
     const token = loginRes.json('token')
     if (!token) continue
     const h = { ...HDRS, 'token': token }
+
+    // 1. Mark inactive
     http.post(`${BASE_URL}/api/v2/updateActive`, JSON.stringify({ isActive: 0, captureEvent: false }), { headers: h })
-    http.post(`${BASE_URL}/api/v2/logout`, null, { headers: h })
+
+    // 2. Open and immediately close WebSocket (clears server-side presence)
+    try {
+      ws.connect(`${wsBase}/api/v2/socket.io/?channel=${token}&EIO=3&transport=websocket`, {}, function (socket) {
+        socket.close()
+      })
+    } catch (_) {}
+
+    // 3. Logout with correct body
+    http.post(`${BASE_URL}/api/v2/logout`, JSON.stringify({ inactive: false }), { headers: h })
   }
   console.log('All doctors logged out')
 }

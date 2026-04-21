@@ -100,7 +100,7 @@ export function doLogout() {
   )
 
   // Logout — invalidates token
-  http.post(`${BASE_URL}/api/v2/logout`, null, { headers: h })
+  http.post(`${BASE_URL}/api/v2/logout`, JSON.stringify({ inactive: false }), { headers: h })
 
   console.log(`[VU${__VU}] Logged out`)
   _token = null

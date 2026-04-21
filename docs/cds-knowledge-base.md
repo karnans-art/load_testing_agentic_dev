@@ -189,12 +189,22 @@ Even with WebSocket active + `updateActive` + fresh doctor (zero history):
 - Invoker does not assign new cases to load test doctors (even with WebSocket active)
 - After diagnosing, doctor must go back to dashboard and pick the next case manually
 
-**Confirmed working flow (manual assign cycle):**
+**Confirmed working flow (manual assign with queue auto-feed):**
 ```
-Dashboard → tasks/v2 UNDIAGNOSED → pick case → task/users → task/assign
-→ nextEcg?id=xxx → open case → diagnose → BACK TO DASHBOARD → repeat
+Dashboard → tasks/v2 UNDIAGNOSED → pick 2 cases → assign both
+→ nextEcg?id=init → returns case 1 → diagnose case 1
+→ nextEcg?id=init → returns case 2 automatically! (no dashboard needed)
+→ diagnose case 2 → queue empty
+→ BACK TO DASHBOARD → assign 2 more → repeat
 ```
-No back-to-back `nextEcg`. Each case requires full manual cycle. 28 cases diagnosed successfully.
+
+**Key discovery:** `nextEcg?id=init` auto-feeds the next assigned case after diagnosis.
+- Doctor assigns 2 cases (queue_length: 2)
+- After diagnosing case 1, `nextEcg?id=init` immediately returns case 2
+- Back-to-back processing works WITHOUT Invoker
+- Doctor only returns to dashboard when queue is empty
+- WebSocket is NOT required for this — it's a server-side queue mechanism
+- Verified: 2 cases assigned, case 1 diagnosed, case 2 auto-returned via nextEcg
 
 **Root cause found (from Invoker logs):**
 ```
@@ -205,6 +215,37 @@ The Invoker requires doctors to be in an **assignment group** (groupId). Our loa
 **Fix:** Add load test doctors to an assignment group in the admin portal. The domain config has `default_assignment_profile` with profile IDs — doctors need to be linked to these profiles.
 
 **Current recommendation:** Use manual assign flow until doctors are added to assignment groups. The `INVOKER_ENABLED` toggle exists for when this is configured.
+
+### Logout Gap — Doctors Still Show Online
+
+After teardown, `report/doctor/active` shows `activeSum: 0` but the `task/{id}/users?role=` API still shows doctors as online in the browser assign dialog.
+
+**Two separate presence systems:**
+
+| System | How it tracks | Our logout clears it? |
+|--------|-------------|----------------------|
+| `report/doctor/active` | `updateActive` API call | Yes — `isActive: 0` |
+| `task/{id}/users` (isActive) | WebSocket connection presence | Partial — open+close might not be enough |
+
+**The gap:** The WebSocket presence might need a proper Socket.IO disconnect sequence, not just open+close. The browser sends a disconnect message before closing. Our teardown might need to send the Socket.IO disconnect frame (`41`) before closing.
+
+**Debug API:** Use `GET /api/v2/task/{taskId}/users?role=` to check which doctors the server considers online. This shows `isActive` and `sessionId` per doctor.
+
+**VERIFIED (2026-04-21):**
+
+1. **Logout clears presence** — CONFIRMED. After `updateActive:0` + `POST /logout {inactive:false}`, doctor disappears from `task/{id}/users` online list. No need for Socket.IO `41` frame — API logout is sufficient.
+
+2. **Auto-queue without Invoker — NO.** After manually assigning 1 case and diagnosing it, `nextEcg?id=init` returns `false`. The system does NOT auto-fill the doctor's queue. Every case must be explicitly assigned.
+   - The back-to-back `nextEcg` only works when **multiple cases are pre-assigned** (e.g., assign 2 upfront, diagnose case 1, `nextEcg` returns case 2)
+   - After all pre-assigned cases are diagnosed, queue is empty — doctor must return to dashboard and assign more
+
+**Final confirmed flow:**
+```
+Dashboard → tasks/v2 UNDIAGNOSED → assign queue_length cases (2)
+→ nextEcg?id=init → case 1 → diagnose
+→ nextEcg?id=init → case 2 (pre-assigned) → diagnose
+→ queue empty → BACK TO DASHBOARD → assign 2 more → repeat
+```
 
 **TODO: Add persistent WebSocket to all doctor workflows**
 

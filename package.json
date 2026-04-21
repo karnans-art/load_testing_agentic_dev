@@ -20,6 +20,8 @@
     "full-flow:cds:cloud":  "node runner/run-test.js --app cds --script full-doctor-flow --cloud",
     "diagnosis:cds":        "node runner/run-test.js --app cds --script continuous-diagnosis",
     "diagnosis:cds:cloud":  "node runner/run-test.js --app cds --script continuous-diagnosis --cloud",
+    "simulator:cds":        "node runner/run-test.js --app cds --script simulator-push",
+    "simulator:cds:cloud":  "node runner/run-test.js --app cds --script simulator-push --cloud",
     "create-users:cds":     "node runner/create-users.js --app cds"
   },
   "dependencies": {
