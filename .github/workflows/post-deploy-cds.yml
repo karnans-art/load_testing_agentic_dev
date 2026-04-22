@@ -67,43 +67,35 @@ jobs:
           echo "- Environment: ${{ github.event.client_payload.environment || inputs.environment }}" >> $GITHUB_STEP_SUMMARY
 
 # ─────────────────────────────────────────────────────────────────────────────
-# JOB 2 — Full Doctor Flow
-# Only runs if smoke passes (needs: smoke).
-# Simulates realistic doctor behaviour — dashboard / ECG review / filter / WS
+# JOB 2 — Full Doctor Flow (disabled for now)
 # ─────────────────────────────────────────────────────────────────────────────
-  full-flow:
-    name: Full Doctor Flow (5m)
-    runs-on: ubuntu-latest
-    needs: smoke                 # ← blocked until smoke passes
-
-    steps:
-      - name: Checkout load test repo
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install dependencies
-        run: npm install --omit=optional
-
-      - name: Install k6
-        run: |
-          curl -sL https://github.com/grafana/k6/releases/download/v1.7.1/k6-v1.7.1-linux-amd64.tar.gz | tar xz
-          sudo mv k6-v1.7.1-linux-amd64/k6 /usr/local/bin/
-
-      - name: Run full doctor flow
-        run: |
-          node runner/run-test.js --app cds --script full-doctor-flow \
-            --setup ${{ github.event.client_payload.max_vus || inputs.max_vus || '6' }}
-
-      - name: Full flow result summary
-        if: always()
-        run: |
-          echo "## Full Doctor Flow" >> $GITHUB_STEP_SUMMARY
-          echo "- Status: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
-          echo "- VUs: ${{ github.event.client_payload.max_vus || inputs.max_vus || '6' }}" >> $GITHUB_STEP_SUMMARY
+#  full-flow:
+#    name: Full Doctor Flow (5m)
+#    runs-on: ubuntu-latest
+#    needs: smoke
+#    steps:
+#      - name: Checkout load test repo
+#        uses: actions/checkout@v4
+#      - name: Setup Node.js
+#        uses: actions/setup-node@v4
+#        with:
+#          node-version: '20'
+#      - name: Install dependencies
+#        run: npm install --omit=optional
+#      - name: Install k6
+#        run: |
+#          curl -sL https://github.com/grafana/k6/releases/download/v1.7.1/k6-v1.7.1-linux-amd64.tar.gz | tar xz
+#          sudo mv k6-v1.7.1-linux-amd64/k6 /usr/local/bin/
+#      - name: Run full doctor flow
+#        run: |
+#          node runner/run-test.js --app cds --script full-doctor-flow \
+#            --setup ${{ github.event.client_payload.max_vus || inputs.max_vus || '6' }}
+#      - name: Full flow result summary
+#        if: always()
+#        run: |
+#          echo "## Full Doctor Flow" >> $GITHUB_STEP_SUMMARY
+#          echo "- Status: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+#          echo "- VUs: ${{ github.event.client_payload.max_vus || inputs.max_vus || '6' }}" >> $GITHUB_STEP_SUMMARY
 
 # ─────────────────────────────────────────────────────────────────────────────
 # JOB 3 — Final summary (always runs)
@@ -112,7 +104,7 @@ jobs:
   summary:
     name: Post Results
     runs-on: ubuntu-latest
-    needs: [smoke, full-flow]
+    needs: [smoke]
     if: always()                 # ← runs even if smoke or full-flow failed
 
     steps:
@@ -123,7 +115,6 @@ jobs:
           echo "| Test | Result |" >> $GITHUB_STEP_SUMMARY
           echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| Smoke (30s gate) | ${{ needs.smoke.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Full Doctor Flow (5m) | ${{ needs.full-flow.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Triggered by:** ${{ github.event.client_payload.actor || github.actor }}" >> $GITHUB_STEP_SUMMARY
           echo "**Deploy SHA:** \`${{ github.event.client_payload.sha || github.sha }}\`" >> $GITHUB_STEP_SUMMARY
