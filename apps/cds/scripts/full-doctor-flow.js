@@ -118,9 +118,12 @@ function ecgCaseReview(BASE_URL, h, user) {
 
     let task = null
     try {
-      const body = tasksRes.json()
+      const body  = tasksRes.json()
       const tasks = body.tasks || body
-      if (Array.isArray(tasks) && tasks.length > 0) task = tasks[0]
+      if (Array.isArray(tasks)) {
+        const undiagnosed = tasks.filter(t => t && t.taskId && t.stage !== 'DIAGNOSED')
+        if (undiagnosed.length > 0) task = undiagnosed[0]
+      }
     } catch (_) {}
 
     if (!task) return
@@ -193,11 +196,13 @@ function multiCaseReview(BASE_URL, h, user) {
     let tasks = []
     try {
       const body = tasksRes.json()
-      tasks = body.tasks || body
-      if (!Array.isArray(tasks)) tasks = []
+      const all  = body.tasks || body
+      if (Array.isArray(all)) {
+        tasks = all.filter(t => t && t.taskId && t.stage !== 'DIAGNOSED')
+      }
     } catch (_) {}
 
-    // Cycle through up to 3 cases quickly
+    // Cycle through up to 3 undiagnosed cases quickly
     const casesToReview = tasks.slice(0, 3)
     for (const task of casesToReview) {
       const viewerStart = Date.now()
