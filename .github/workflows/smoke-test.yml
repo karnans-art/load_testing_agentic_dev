@@ -2,10 +2,6 @@ name: CDS Smoke Test
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'apps/cds/**'
 
 jobs:
   smoke:
