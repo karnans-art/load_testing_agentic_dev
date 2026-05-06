@@ -2,13 +2,16 @@ import http from 'k6/http';
 import { check, sleep, group } from 'k6';
 import exec from 'k6/execution';
 
-const BASE_URL = __ENV.BASE_URL || 'https://uat-ecg.tricogdev.net';
-const ADMIN_URL = __ENV.SIMULATOR_ADMIN_URL || 'https://uat-admin.tricogdev.net';
+if (!__ENV.BASE_URL)            throw new Error('BASE_URL is not set — add it to .env before running tests')
+if (!__ENV.SIMULATOR_ADMIN_URL) throw new Error('SIMULATOR_ADMIN_URL is not set — add it to .env before running tests')
+if (!__ENV.TRICOG_ADMIN_COOKIE) throw new Error('TRICOG_ADMIN_COOKIE is not set — capture it from dev-new-admin.tricogdev.net browser cookies')
+
+const BASE_URL = __ENV.BASE_URL;
+const ADMIN_URL = __ENV.SIMULATOR_ADMIN_URL;
 const USERS = JSON.parse(open('../apps/cds/users.json')).users;
 const CSI_FILE = open('../apps/cds/fixtures/sample.csi', 'b');
 
-// ── Paste your admin cookie here ─────────────────────────────
-const ADMIN_COOKIE = __ENV.TRICOG_ADMIN_COOKIE || 'tricogadmin=s%3APD3GqTNwDUWQvAqawTrV9RrOqaBhtF5B.txKCgc%2BeoTuqAG00SotrjWk6%2B5%2Fi0uwOCbRduoSLEG8';
+const ADMIN_COOKIE = __ENV.TRICOG_ADMIN_COOKIE;
 
 const HEADERS = {
   'Accept':           'application/json, text/plain, */*',

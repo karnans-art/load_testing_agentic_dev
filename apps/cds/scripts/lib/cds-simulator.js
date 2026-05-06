@@ -5,8 +5,11 @@
 import http from 'k6/http'
 import { check } from 'k6'
 
-const ADMIN_URL = __ENV.SIMULATOR_ADMIN_URL || 'https://uat-admin.tricogdev.net'
-const ADMIN_COOKIE = __ENV.TRICOG_ADMIN_COOKIE || ''
+if (!__ENV.SIMULATOR_ADMIN_URL) throw new Error('SIMULATOR_ADMIN_URL is not set — add it to .env before running tests')
+if (!__ENV.TRICOG_ADMIN_COOKIE)  throw new Error('TRICOG_ADMIN_COOKIE is not set — capture it from dev-new-admin.tricogdev.net browser cookies')
+
+const ADMIN_URL    = __ENV.SIMULATOR_ADMIN_URL
+const ADMIN_COOKIE = __ENV.TRICOG_ADMIN_COOKIE
 
 // Pre-load all ECG files in init context (required by k6)
 const CSI_FILES = [

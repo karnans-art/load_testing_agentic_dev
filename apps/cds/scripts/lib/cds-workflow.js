@@ -95,8 +95,8 @@ export function doctorWorkflow() {
     const queueRes = batchRes[batchRes.length - 1]
     if (queueRes) queueCheckDuration.add(queueRes.timings.duration)
 
-    if (INVOKER_ENABLED) {
-      // Invoker ON: tasks/latest has auto-assigned cases — filter out already diagnosed
+    if (INVOKER_ENABLED && user.isPreferred === true) {
+      // Invoker ON + confirmed preferred doctor → use tasks/latest (auto-assigned)
       try {
         const body = tasksRes.json()
         const allTasks = body.tasks || body
@@ -105,7 +105,8 @@ export function doctorWorkflow() {
         }
       } catch (_) {}
     } else {
-      // Invoker OFF: use tasks/v2 UNDIAGNOSED — manual assign needed
+      // Invoker OFF, non-preferred, OR isPreferred not yet detected → tasks/v2 UNDIAGNOSED
+      // isPreferred will be detected in the Diagnosis Page block below (task/users call)
       const v2Res = http.post(`${BASE_URL}/api/v2/tasks/v2`, JSON.stringify({
         filter: { pageNo: 1, perPage: 10, stage: 'UNDIAGNOSED', taskTypes: 'RESTING' },
         sortBy: { datetime: { enable: true, order: 'DESC' } },
@@ -127,21 +128,37 @@ export function doctorWorkflow() {
 
   // ── Diagnosis Page — loop through each task ───────────────
   for (const task of tasks) {
-    // Manual assign only when Invoker is OFF (cases not pre-assigned)
-    if (!INVOKER_ENABLED && !task.assignedAt) {
+    // Manual assign block — runs when NOT (Invoker ON + confirmed preferred)
+    // Also used for one-time isPreferred detection on first iteration
+    let skipTask = false
+    if (!(INVOKER_ENABLED && user.isPreferred === true) && !task.assignedAt) {
       const usersRes = http.get(`${BASE_URL}/api/v2/task/${task.taskId}/users?role=undefined`, { headers, tags: { name: 'task/users' } })
       check(usersRes, { 'task/users ok': (r) => r.status === 200 })
 
       let assignable = []
       try { assignable = usersRes.json().users || [] } catch (_) {}
       const me = assignable.find(u => u.username.toLowerCase() === user.username.toLowerCase())
-      if (me) {
+
+      // ── One-time isPreferred detection ──────────────────────
+      if (me && user.isPreferred === undefined) {
+        user.isPreferred = me.isPreferred
+        console.log(`[VU${__VU}] ${user.username} isPreferred: ${user.isPreferred}`)
+      }
+
+      if (INVOKER_ENABLED && user.isPreferred === true) {
+        // Just detected as preferred + Invoker ON
+        // Skip this task — next iteration will use Invoker path (tasks/latest)
+        console.log(`[VU${__VU}] Preferred doctor detected — switching to Invoker path next cycle`)
+        skipTask = true
+      } else if (me) {
+        // Non-preferred OR Invoker OFF → manual assign
         const assignRes = http.post(`${BASE_URL}/api/v2/task/assign`, JSON.stringify({
           assignments: [{ username: me.username, taskId: task.taskId, role: 'DOCTOR' }],
         }), { headers, tags: { name: 'task/assign' } })
         check(assignRes, { 'task/assign ok': (r) => r.status >= 200 && r.status < 300 })
       }
     }
+    if (skipTask) break
 
     group('Diagnosis Page', () => {
       const viewerStart = Date.now()

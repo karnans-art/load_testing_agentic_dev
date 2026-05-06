@@ -12,7 +12,7 @@ import crypto from 'crypto'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { getAdminSession, createUser, findResetTokens, setPassword } from './setup/provision-lib.js'
+import { getAdminSession, createUser, findResetTokens, setPassword, triggerPasswordReset } from './setup/provision-lib.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, '..')
@@ -77,7 +77,15 @@ async function main() {
       if (!result.skipped) {
         batchCreated.push(result)
       } else {
-        console.log(`    (will verify password later)`)
+        const ok = await triggerPasswordReset(result.userName, DOMAIN)
+        if (ok) {
+          batchCreated.push(result)
+          console.log(`    → reset email triggered`)
+        } else {
+          console.error(`\n✗ ABORT — could not trigger reset for existing user ${result.userName}`)
+          if (allUsers.length > 0) saveUsers(allUsers)
+          process.exit(1)
+        }
       }
       await delay(DELAY_MS)
     }

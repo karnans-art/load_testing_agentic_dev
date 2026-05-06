@@ -39,8 +39,8 @@ Self-contained k6 load test for CDS (ecg.tricog.com). Simulates a doctor's full 
 |-------|-------|--------|
 | VUs | `users.json` length | 1 VU per user, no session conflicts |
 | Duration | 20s | Configurable in `options` |
-| `BASE_URL` | `https://uat-ecg.tricogdev.net` | env `BASE_URL` |
-| `ADMIN_URL` | `https://uat-admin.tricogdev.net` | env `ADMIN_URL` |
+| `BASE_URL` | `https://dev-new-ecg.tricogdev.net` | env `BASE_URL` |
+| `ADMIN_URL` | `https://dev-new-admin.tricogdev.net` | env `ADMIN_URL` |
 | `ADMIN_COOKIE` | manual paste | env `ADMIN_COOKIE` or edit line 10 |
 | `.csi` file | `apps/cds/fixtures/sample.csi` | Uploaded ECG data for simulator |
 

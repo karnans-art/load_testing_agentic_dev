@@ -5,7 +5,7 @@
 // Run:  npm run simulator:cds
 // Env:
 //   TRICOG_ADMIN_COOKIE  (required) — session cookie from admin panel login
-//   SIMULATOR_ADMIN_URL  (optional) — default: https://uat-admin.tricogdev.net
+//   SIMULATOR_ADMIN_URL  (optional) — default: https://dev-new-admin.tricogdev.net
 //   SIMULATOR_VUS        (optional) — number of concurrent pushers, default: 50
 //   PUSH_INTERVAL        (optional) — seconds to sleep between pushes per VU, default: 2
 //   DURATION             (optional) — how long to run, default: 5m

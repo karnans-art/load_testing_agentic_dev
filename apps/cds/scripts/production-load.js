@@ -10,7 +10,8 @@ import http from 'k6/http'
 import { check } from 'k6'
 
 // ── Config ─────────────────────────────────────────────────────
-const BASE_URL = __ENV.BASE_URL || 'https://uat-ecg.tricogdev.net'
+if (!__ENV.BASE_URL) throw new Error('BASE_URL is not set — add it to .env before running tests')
+const BASE_URL = __ENV.BASE_URL
 const USERS    = JSON.parse(open('../users.json')).users
 const MAX_VUS  = parseInt(__ENV.MAX_VUS || '0')
 const VU_COUNT = MAX_VUS > 0 ? Math.min(MAX_VUS, USERS.length) : USERS.length

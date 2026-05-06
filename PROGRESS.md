@@ -139,6 +139,27 @@
 
 ---
 
+## New Environment Provisioning (TODO)
+
+Before running load tests against a new environment, all three portal URLs and their auth cookies must be updated in `.env`:
+
+| Variable | Portal | Status |
+|----------|--------|--------|
+| `BASE_URL` | ECG analysis portal (ecg.tricog.com) | `[ ]` Fill in new env URL |
+| `SIMULATOR_ADMIN_URL` | Terminal admin portal (dev-new-admin) | `[x]` Set to dev-new-admin.tricogdev.net |
+| `ADMIN_URL` | Atlasadmin portal — doctor provisioning | `[ ]` Fill in new env URL |
+| `TRICOG_ADMIN_COOKIE` | Auth cookie for SIMULATOR_ADMIN_URL | `[ ]` Re-capture from browser |
+| `CDS_ADMIN_COOKIE` | Auth cookie for ADMIN_URL | `[ ]` Re-capture from browser |
+| `ADMIN_DOMAIN` | Domain name in atlasadmin for new env | `[ ]` Confirm with team |
+
+After URLs are set:
+- [ ] Run `npm run health:cds` to verify BASE_URL is reachable
+- [ ] Run `npm run create-users:cds` to provision doctors in new domain
+- [ ] Update `apps/cds/config.js` → `AUTH.loginBody.domainId` to match new domain
+- [ ] Run `npm run smoke:cds -- --setup 5` as final gate
+
+---
+
 ## Pending / Known Gaps
 
 | # | Item | Status | Notes |

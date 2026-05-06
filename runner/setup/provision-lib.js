@@ -1,23 +1,27 @@
 // Provisioning Library — reusable functions for user creation
 // Used by both provision-users.js (standalone) and run-test.js (integrated)
 //
-// Requires: CDS_ADMIN_COOKIE env var (tlas cookie from uat-ecg-atlasadmin.tricogdev.net)
+// Requires: CDS_ADMIN_COOKIE env var — full cookie string (name=value) from dev-new-ecg-atlasadmin.tricogdev.net
 
 import { ImapFlow } from 'imapflow'
 
-const ADMIN_URL         = process.env.ADMIN_URL || 'https://uat-ecg-atlasadmin.tricogdev.net'
-const ADMIN_DOMAIN      = process.env.ADMIN_DOMAIN || 'UatDomain3'
-const CDS_URL           = process.env.BASE_URL || 'https://uat-ecg.tricogdev.net'
-const GOOGLE_EMAIL      = process.env.GOOGLE_EMAIL
+const ADMIN_URL           = process.env.ADMIN_URL
+const ADMIN_DOMAIN        = process.env.ADMIN_DOMAIN
+const CDS_URL             = process.env.BASE_URL
+const GOOGLE_EMAIL        = process.env.GOOGLE_EMAIL
 const GOOGLE_APP_PASSWORD = process.env.GOOGLE_APP_PASSWORD
-const EMAIL_BASE        = GOOGLE_EMAIL
+const EMAIL_BASE          = GOOGLE_EMAIL
+
+const _missing = ['ADMIN_URL', 'ADMIN_DOMAIN', 'BASE_URL', 'GOOGLE_EMAIL', 'GOOGLE_APP_PASSWORD']
+  .filter(k => !process.env[k])
+if (_missing.length) throw new Error(`Missing required env vars: ${_missing.join(', ')} — set them in .env`)
 
 // ── Step 1: Read admin cookie from env ────────────────────────
 export async function getAdminSession() {
   const cookie = process.env.CDS_ADMIN_COOKIE
   if (!cookie) {
     console.error('  ✗ CDS_ADMIN_COOKIE env var is not set')
-    console.error('    Get it from: https://uat-ecg-atlasadmin.tricogdev.net → browser cookies → tlas value')
+    console.error('    Get it from: https://dev-new-ecg-atlasadmin.tricogdev.net → DevTools → Application → Cookies → copy the session cookie as name=value')
     return null
   }
   console.log('  ✓ Using CDS_ADMIN_COOKIE from env')
@@ -25,7 +29,7 @@ export async function getAdminSession() {
 }
 
 // ── Step 2: Create user via admin API ──────────────────────────
-export async function createUser(tlasCookie, n, prefix = 'lt', domain = null) {
+export async function createUser(adminCookie, n, prefix = 'lt', domain = null) {
   const useDomain = domain || ADMIN_DOMAIN
   const padded = String(n).padStart(3, '0')
   const userName = `${prefix}${padded}`
@@ -58,7 +62,7 @@ export async function createUser(tlasCookie, n, prefix = 'lt', domain = null) {
   const res = await fetch(`${ADMIN_URL}/api/hubdoctor`, {
     method: 'POST',
     headers: {
-      'cookie': `tlas=${tlasCookie}`,
+      'cookie': adminCookie,
       'domain': useDomain,
       'clientdevicetype': 'Linux x86_64',
       'clientos': 'ATLAS_ADMIN',
@@ -167,7 +171,7 @@ export async function findResetTokens(userNames, maxRetries = 10) {
         for (const userName of pending) {
           if (!body.includes(targets[userName].email)) continue
           const token = await extractToken(body)
-          if (token) {
+          if (token && !targets[userName].token) {  // keep newest — don't overwrite
             targets[userName].token = token
             matched++
           }
@@ -198,6 +202,29 @@ export async function findResetTokens(userNames, maxRetries = 10) {
   return targets
 }
 
+// ── Step 3b: Trigger password reset email for existing user ──────
+export async function triggerPasswordReset(username, domain) {
+  const res = await fetch(`${CDS_URL}/api/v2/password/forgot`, {
+    method: 'POST',
+    headers: {
+      'Content-Type':     'application/json',
+      'clientdevicetype': 'Linux x86_64',
+      'clientos':         'INSTA_ECG_VIEWER',
+      'clientosversion':  '5.0 (X11; Linux x86_64)',
+      'clientversion':    '0.14.4',
+      'domain':           domain || ADMIN_DOMAIN,
+    },
+    body: JSON.stringify({ username, domainId: domain || ADMIN_DOMAIN }),
+  })
+  const ok = res.status >= 200 && res.status < 300
+  if (!ok) {
+    let body = ''
+    try { body = await res.text() } catch (_) {}
+    console.error(`  triggerPasswordReset failed for ${username}: ${res.status} — ${body.slice(0, 200)}`)
+  }
+  return ok
+}
+
 // ── Step 4: Set password via reset token ───────────────────────
 export async function setPassword(token, password) {
   const res = await fetch(`${CDS_URL}/api/v2/password/update`, {
@@ -212,16 +239,21 @@ export async function setPassword(token, password) {
     body: JSON.stringify({ password, token }),
   })
 
+  if (res.status < 200 || res.status >= 300) {
+    let body = ''
+    try { body = await res.text() } catch (_) {}
+    console.error(`  setPassword failed: ${res.status} — ${body.slice(0, 300)}`)
+  }
   return res.status >= 200 && res.status < 300
 }
 
 // ── Step 5: Re-activate a deactivated user ────────────────────
-export async function reactivateUser(tlasCookie, userName) {
+export async function reactivateUser(adminCookie, userName) {
   const res = await fetch(`${ADMIN_URL}/api/hub/toggle-status`, {
     method: 'PUT',
     headers: {
       'Content-Type':     'application/json',
-      'cookie':           `tlas=${tlasCookie}`,
+      'cookie':           adminCookie,
       'domain':           ADMIN_DOMAIN,
       'clientdevicetype': 'Linux x86_64',
       'clientos':         'ATLAS_ADMIN',
@@ -238,12 +270,12 @@ export async function reactivateUser(tlasCookie, userName) {
 }
 
 // ── Step 6: Deactivate user after load test ───────────────────
-export async function deactivateUser(tlasCookie, userName) {
+export async function deactivateUser(adminCookie, userName) {
   const res = await fetch(`${ADMIN_URL}/api/hub/toggle-status`, {
     method: 'PUT',
     headers: {
       'Content-Type':     'application/json',
-      'cookie':           `tlas=${tlasCookie}`,
+      'cookie':           adminCookie,
       'domain':           ADMIN_DOMAIN,
       'clientdevicetype': 'Linux x86_64',
       'clientos':         'ATLAS_ADMIN',

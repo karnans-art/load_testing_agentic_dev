@@ -72,9 +72,10 @@ export function diagnosisLoop() {
   const user     = getUser()
   if (!user) return
 
-  if (INVOKER_ENABLED) {
+  if (INVOKER_ENABLED && user.isPreferred === true) {
     invokerFlow(h, BASE_URL, user)
   } else {
+    // also handles first-time detection of isPreferred via task/users call
     manualFlow(h, BASE_URL, user)
   }
 
@@ -231,7 +232,18 @@ function manualFlow(h, BASE_URL, user) {
         let assignable = []
         try { assignable = usersRes.json().users || [] } catch (_) {}
         const me = assignable.find(u => u.username.toLowerCase() === user.username.toLowerCase())
-        if (me) {
+
+        // ── One-time isPreferred detection ──────────────────
+        if (me && user.isPreferred === undefined) {
+          user.isPreferred = me.isPreferred
+          console.log(`[VU${__VU}] ${user.username} isPreferred: ${user.isPreferred}`)
+        }
+
+        if (INVOKER_ENABLED && user.isPreferred === true) {
+          // Just detected as preferred — skip this task, Invoker path next cycle
+          console.log(`[VU${__VU}] Preferred detected — switching to Invoker path next cycle`)
+          task = null
+        } else if (me) {
           http.post(`${BASE_URL}/api/v2/task/assign`, JSON.stringify({
             assignments: [{ username: me.username, taskId: task.taskId, role: 'DOCTOR' }],
           }), { headers: h, tags: { name: 'task/assign' } })

@@ -2,7 +2,7 @@
 
 ## Product: CDS (Clinical Decision Support)
 
-CDS is the ECG doctor workflow application at `uat-ecg.tricogdev.net`. Doctors login, view assigned ECG cases, review waveforms, and submit diagnoses.
+CDS is the ECG doctor workflow application at `dev-new-ecg.tricogdev.net`. Doctors login, view assigned ECG cases, review waveforms, and submit diagnoses.
 
 ---
 
@@ -10,11 +10,11 @@ CDS is the ECG doctor workflow application at `uat-ecg.tricogdev.net`. Doctors l
 
 ### Admin Portal
 
-Users are created via the **Atlas Admin Portal** at `uat-ecg-atlasadmin.tricogdev.net`.
+Users are created via the **Atlas Admin Portal** at `dev-new-ecg-atlasadmin.tricogdev.net`.
 
 ```
 API:     POST /api/hubdoctor
-Auth:    Cookie: tlas=<session>
+Auth:    Cookie: change-me-ATLAS_SERVER_SESSION_NAME=<session>
 Header:  domain: LoadTest3
 ```
 
@@ -40,7 +40,7 @@ npm run create-users:cds -- --count 100 --domain LoadTest3 --prefix lt3
 ```
 
 This runs `runner/create-users.js` which:
-1. Reads `CDS_ADMIN_COOKIE` from `.env` (tlas cookie)
+1. Reads `CDS_ADMIN_COOKIE` from `.env` (full `name=value` session cookie)
 2. Creates users in batches of 5-10
 3. Opens single IMAP connection to Gmail
 4. Batch-fetches all reset emails
@@ -73,7 +73,7 @@ Different domain from user creation:
 
 ```
 API:     POST /api/case/simulator
-URL:     https://uat-admin.tricogdev.net
+URL:     https://dev-new-admin.tricogdev.net
 Auth:    Cookie: tricogadmin=<session>
 ```
 
@@ -100,8 +100,8 @@ doctors:   starts 2s after simulator (head start to push cases)
 
 | Cookie | Domain | Purpose | Env var |
 |--------|--------|---------|---------|
-| `tlas` | `uat-ecg-atlasadmin.tricogdev.net` | User creation | `CDS_ADMIN_COOKIE` |
-| `tricogadmin` | `uat-admin.tricogdev.net` | Simulator push | `TRICOG_ADMIN_COOKIE` |
+| `change-me-ATLAS_SERVER_SESSION_NAME` | `dev-new-ecg-atlasadmin.tricogdev.net` | User creation | `CDS_ADMIN_COOKIE` |
+| `tricogadmin` | `dev-new-admin.tricogdev.net` | Simulator push | `TRICOG_ADMIN_COOKIE` |
 
 Both expire — refresh from browser DevTools when they stop working.
 
@@ -514,5 +514,5 @@ npm run create-users:cds -- --count 100 --domain LoadTest3 --prefix lt3
 
 ### Refresh expired cookies
 
-1. Open `uat-admin.tricogdev.net` → DevTools → copy `tricogadmin` cookie → update `.env` `TRICOG_ADMIN_COOKIE`
-2. Open `uat-ecg-atlasadmin.tricogdev.net` → DevTools → copy `tlas` cookie → update `.env` `CDS_ADMIN_COOKIE`
+1. Open `dev-new-admin.tricogdev.net` → DevTools → copy `tricogadmin` cookie → update `.env` `TRICOG_ADMIN_COOKIE`
+2. Open `dev-new-ecg-atlasadmin.tricogdev.net` → DevTools → copy `tlas` cookie → update `.env` `CDS_ADMIN_COOKIE`

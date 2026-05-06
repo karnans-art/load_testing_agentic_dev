@@ -32,8 +32,10 @@ export function getUser() {
   return _vuUser
 }
 
+if (!__ENV.BASE_URL) throw new Error('BASE_URL is not set — add it to .env before running tests')
+
 export function getBaseUrl() {
-  return __ENV.BASE_URL || 'https://uat-ecg.tricogdev.net'
+  return __ENV.BASE_URL
 }
 
 export function doLogin() {

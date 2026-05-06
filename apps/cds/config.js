@@ -2,7 +2,7 @@
 // All scripts in apps/cds/ read from here only.
 // DO NOT import this from other apps.
 
-export const BASE_URL = __ENV.BASE_URL || 'https://uat-ecg.tricogdev.net'
+export const BASE_URL = __ENV.BASE_URL || ''
 
 export const APP_HEADER = 'ECG'
 
@@ -21,7 +21,7 @@ export const DEFAULT_HEADERS = {
 export const AUTH = {
   loginEndpoint: '/api/v2/login',
   loginBody: {
-    domainId: 'Uatdomain3',
+    domainId: 'TricogInt',
     username: 'Karnan',
     password: 'tricog123',
     application: 'INSTA_ECG_VIEWER',
